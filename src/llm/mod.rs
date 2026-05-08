@@ -44,6 +44,47 @@ pub fn strip_model_prefix(model: &str) -> &str {
         .unwrap_or(model)
 }
 
+/// Best-effort detection of models that handle a long `tools` schema
+/// reliably. Used by the chat dispatcher to decide whether to inject
+/// **MCP** tool schemas alongside the always-on Mike builtins.
+///
+/// Gating here is conservative on purpose:
+///   - Big-3 cloud models (Claude / Gemini / GPT) — yes. Their
+///     function-calling implementations all handle 20-30 tool
+///     schemas without confusion.
+///   - `openai:` BYO endpoints — yes. The user pointed us at an
+///     OpenAI-shaped server they trust; assume it speaks tools.
+///   - `local:` endpoints — no. These are typically small Ollama /
+///     llama.cpp models (3B-13B) that get distracted by long tool
+///     schemas; we observed gemma3 and llama3.2:3b in particular
+///     emit malformed JSON when given >5 tools. Power users can
+///     opt in via the `MIKE_FORCE_MCP_TOOLS=1` env override.
+///   - Unknown / unconfigured — no, fail closed.
+///
+/// The system prompt always summarises MCP servers as text (see
+/// `build_mcp_system_prompt`) regardless of this gate, so a model
+/// that doesn't get the tool schemas still knows the servers exist
+/// and can ask the user to invoke them.
+pub fn supports_mcp_tools(model: &str) -> bool {
+    if std::env::var("MIKE_FORCE_MCP_TOOLS")
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    let raw = model.to_ascii_lowercase();
+    if raw.starts_with("local:") {
+        return false;
+    }
+    if raw.starts_with("openai:") {
+        return true;
+    }
+    let m = strip_model_prefix(&raw);
+    m.starts_with("claude")
+        || m.starts_with("gemini")
+        || m.starts_with("gpt-")
+}
+
 /// Best-effort detection of multimodal (vision-capable) models.
 /// Used to decide whether to send rendered PDF pages to the LLM.
 pub fn is_vision_capable(model: &str) -> bool {
@@ -128,6 +169,39 @@ mod tests {
         assert_eq!(strip_model_prefix("local:llama3"), "llama3");
         // No prefix → unchanged.
         assert_eq!(strip_model_prefix("claude-opus-4-7"), "claude-opus-4-7");
+    }
+
+    #[test]
+    fn supports_mcp_tools_yes_for_known_cloud_models() {
+        // Force-disable env override so we only test the default
+        // capability table.
+        unsafe { std::env::remove_var("MIKE_FORCE_MCP_TOOLS") };
+        assert!(supports_mcp_tools("claude-opus-4-7"));
+        assert!(supports_mcp_tools("claude-sonnet-4-6"));
+        assert!(supports_mcp_tools("gemini-2.5-pro"));
+        assert!(supports_mcp_tools("gemini-2.5-flash"));
+        assert!(supports_mcp_tools("gpt-4o"));
+        assert!(supports_mcp_tools("gpt-4.1"));
+        assert!(supports_mcp_tools("openai:gpt-4o"));
+    }
+
+    #[test]
+    fn supports_mcp_tools_no_for_local_or_unknown() {
+        unsafe { std::env::remove_var("MIKE_FORCE_MCP_TOOLS") };
+        // local: prefix → conservative default OFF
+        assert!(!supports_mcp_tools("local:llama3.2:3b"));
+        assert!(!supports_mcp_tools("local:gemma3"));
+        // Bare unknown / vLLM names → OFF until the user opts in.
+        assert!(!supports_mcp_tools("localllm-main"));
+        assert!(!supports_mcp_tools("foobar-7b"));
+    }
+
+    #[test]
+    fn supports_mcp_tools_force_override() {
+        unsafe { std::env::set_var("MIKE_FORCE_MCP_TOOLS", "1") };
+        assert!(supports_mcp_tools("local:gemma3"));
+        assert!(supports_mcp_tools("foobar-7b"));
+        unsafe { std::env::remove_var("MIKE_FORCE_MCP_TOOLS") };
     }
 
     #[test]

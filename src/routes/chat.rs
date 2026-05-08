@@ -1512,17 +1512,26 @@ async fn stream_chat_root(
     // Builtin Mike tools first (read_document, find_in_document,
     // read_workflow, generate_docx stub, edit_document stub).
     let mut all_tools: Vec<ToolSchema> = builtin_tools::schemas();
-    // TODO[mcp-tooluse]: re-enable MCP tools when we can route them only to
-    // models that actually support tool-calls. Today many small/local models
-    // (gemma3, llama3.2:3b) work poorly with a 27-tool schema, and Gemini
-    // 2.5 Flash is fragile when the schema is large. For now MCP servers
-    // remain visible to the model via the system prompt summary, but their
-    // tool schemas are NOT injected. When re-enabled, append:
-    //     all_tools.extend(mcp_servers.iter().flat_map(|s| s.tool_schemas.clone()));
-    let _mcp_tool_count: usize = mcp_servers
+
+    // MCP tools: injected ONLY for models that handle large tool
+    // schemas reliably (see `llm::supports_mcp_tools` for the gate).
+    // Smaller local models keep the previous behaviour — the MCP
+    // servers stay visible via the system-prompt summary
+    // (`build_mcp_system_prompt`) but their tool schemas don't go
+    // into the schema list. The system prompt structure is unchanged
+    // either way; the only thing this gate decides is whether the
+    // model receives the additional `tools` schemas at the wire
+    // protocol level.
+    let mcp_tools_enabled = llm::supports_mcp_tools(&raw_model);
+    let mcp_tool_count: usize = mcp_servers
         .iter()
         .map(|s| s.tool_schemas.len())
         .sum();
+    if mcp_tools_enabled {
+        for srv in &mcp_servers {
+            all_tools.extend(srv.tool_schemas.iter().cloned());
+        }
+    }
 
     // Map chat-local labels (`doc-0`, `doc-1`, …) to real document UUIDs so
     // builtin tools (read_document, find_in_document) can resolve them.
@@ -1532,9 +1541,10 @@ async fn stream_chat_root(
     }
 
     tracing::info!(
-        "[chat] tool-use: {} builtin tools, {} MCP tools (held back), labels={:?}",
+        "[chat] tool-use: {} total tools (builtin + {} MCP, mcp_enabled={}), labels={:?}",
         all_tools.len(),
-        _mcp_tool_count,
+        mcp_tool_count,
+        mcp_tools_enabled,
         doc_label_map.keys().collect::<Vec<_>>()
     );
 
