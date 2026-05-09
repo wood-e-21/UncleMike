@@ -293,7 +293,16 @@ impl EurlexAdapter {
                 continue;
             }
 
-            if extracted.text.trim().len() < 400 {
+            // Threshold tightened from 400 → 2000 chars. A 400-char
+            // body sneaks past as a "hit" in search but is then
+            // rejected downstream by fetch_celex's 1024-byte guard,
+            // surfacing as a misleading "found, then error" UX. Real
+            // legal acts in any language run to thousands of chars
+            // even for short Court orders; anything below 2000 is
+            // either a stub EUR-Lex serves while warming its CDN
+            // cache, or a "not available in this language" page that
+            // dodged the signature-phrase check.
+            if extracted.text.trim().len() < 2000 {
                 tracing::info!(
                     "[eurlex] {celex} ({lang_upper}): body too short ({} chars) on this variant, trying next",
                     extracted.text.trim().len()
@@ -1093,25 +1102,62 @@ impl LegalCorpusAdapter for EurlexAdapter {
             .map(|l| l.to_ascii_lowercase())
             .unwrap_or_else(|| "en".to_string());
 
-        let try_primary = self.try_fetch_lang(celex, &primary).await?;
+        // Retry-with-backoff wrapper around try_fetch_lang. EUR-Lex
+        // sometimes serves a tiny stub on the first hit (CDN cache
+        // miss, soft rate limit) and the real content on a follow-up
+        // request a few seconds later. Giving up after a single try
+        // makes the user click Indicizza-fail-Indicizza-success in
+        // a loop. Three attempts at 0/2/5 s caps the worst case at
+        // ~7 s of wait without retries running away.
+        async fn fetch_with_retry(
+            this: &EurlexAdapter,
+            celex: &str,
+            lang: &str,
+        ) -> Result<Option<EurlexFetched>> {
+            for (attempt, delay_ms) in [(1u32, 0u64), (2, 2000), (3, 5000)] {
+                if delay_ms > 0 {
+                    tracing::info!(
+                        "[eurlex] {celex} ({}): retry attempt {} in {}ms",
+                        lang.to_ascii_uppercase(),
+                        attempt,
+                        delay_ms
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                }
+                if let Some(f) = this.try_fetch_lang(celex, lang).await? {
+                    if attempt > 1 {
+                        tracing::info!(
+                            "[eurlex] {celex} ({}): attempt {} succeeded ({} chars)",
+                            lang.to_ascii_uppercase(),
+                            attempt,
+                            f.text.len()
+                        );
+                    }
+                    return Ok(Some(f));
+                }
+            }
+            Ok(None)
+        }
+
+        let try_primary = fetch_with_retry(self, celex, &primary).await?;
         let (fetched, used_fallback) = match try_primary {
             Some(f) => (f, false),
             None => {
                 if !fallback_en || primary == "en" {
                     return Err(anyhow!(
                         "EUR-Lex: CELEX {celex} not available in {primary} \
-                         (and English fallback disabled)"
+                         (after 3 attempts; EUR-Lex may be rate-limiting — try again in a minute)"
                     ));
                 }
                 tracing::info!(
-                    "[eurlex] {celex}: missing in {primary}, falling back to en"
+                    "[eurlex] {celex}: missing in {primary} after 3 attempts, falling back to en"
                 );
-                let en = self
-                    .try_fetch_lang(celex, "en")
+                let en = fetch_with_retry(self, celex, "en")
                     .await?
                     .ok_or_else(|| {
                         anyhow!(
-                            "EUR-Lex: CELEX {celex} not available in {primary} or English"
+                            "EUR-Lex: CELEX {celex} not available in {primary} or English \
+                             (after 3 attempts each; EUR-Lex may be rate-limiting)"
                         )
                     })?;
                 (en, true)
