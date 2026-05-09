@@ -339,6 +339,36 @@ async fn fetch_celex(
         .await
         .map_err(|e| err(StatusCode::BAD_GATEWAY, &e.to_string()))?;
 
+    // Refuse to persist a phantom document. A real CELEX served in
+    // any language is at least several thousand chars (even short
+    // Court orders run past 1 KB); anything below 1 KB is almost
+    // certainly an EUR-Lex stub page that slipped past the
+    // extractor's stub-marker check (we've seen this happen with
+    // older fetches before the multi-URL fallback chain landed).
+    // Without this guard, the row goes in at size=0, the user sees
+    // a "indicizzato" badge, and the next time the model tries to
+    // read the doc it gets a "not found" because there's nothing
+    // to read.
+    if fetched.bytes.len() < 1024 {
+        tracing::warn!(
+            "[eurlex] refusing to persist {} ({}, {} bytes) — too small to be a real act, \
+             likely an EUR-Lex stub. The user can retry; subsequent fetches \
+             often succeed once EUR-Lex's caches warm.",
+            fetched.identifier,
+            fetched.language,
+            fetched.bytes.len()
+        );
+        return Err(err(
+            StatusCode::BAD_GATEWAY,
+            &format!(
+                "EUR-Lex ha restituito un body troppo piccolo per essere il testo dell'atto \
+                 ({} byte). Spesso è una pagina di fallback intermedia — riprova tra qualche \
+                 secondo.",
+                fetched.bytes.len()
+            ),
+        ));
+    }
+
     // Hash the bytes so two users / two languages of the same act
     // dedupe on disk. We reuse the same `cache/` layout as chat
     // attachments (see docs/CACHE.md) so the chat retrieval fast-path
