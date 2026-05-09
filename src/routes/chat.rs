@@ -399,6 +399,122 @@ async fn dispatch_mcp_tool(
     fallback
 }
 
+/// Dispatch an MCP tool, then transparently auto-chain a follow-up
+/// `get_*` call when the server returns the async-pending pattern.
+///
+/// Pattern detection (Edge's pseudonymise flow is the canonical
+/// example):
+///
+///   1. Model calls `request_pseudonymized_documents(ids=[…])`
+///   2. Edge returns `{session_id, status:"pending", doc_count:N}`
+///      — the actual documents aren't ready yet because Edge wants
+///      a human to click "Conferma" in its UI first.
+///   3. Without auto-chain, the model receives the pending envelope
+///      as the tool result, almost always declares the job done,
+///      and never fetches the real documents.
+///
+/// Auto-chain bridges step 3 by:
+///
+///   * recognising the `{session_id, status:"pending"}` shape;
+///   * deriving the companion tool name (`request_X` → `get_X`);
+///   * checking the same MCP server actually exposes that companion;
+///   * dispatching it with `{session_id, wait_for_approval: true,
+///     wait_timeout_seconds: <our timeout>}` so the long-poll
+///     completes server-side;
+///   * substituting the get_* result for the original.
+///
+/// Generic enough to fit any MCP server that uses the same naming
+/// convention. Tools that don't follow the pattern (or that already
+/// return their full result inline) are unaffected — the function
+/// degrades to a passthrough.
+async fn dispatch_mcp_tool_with_async_chain(
+    servers: &[McpDiscovered],
+    tool_name: &str,
+    arguments: &Value,
+) -> String {
+    let primary = dispatch_mcp_tool(servers, tool_name, arguments).await;
+
+    // Only the "request_*" tools can ever trigger a chain — short-
+    // circuit otherwise so we don't pay the JSON parse for every
+    // tool result (most are already final).
+    let companion_name = match tool_name.strip_prefix("request_") {
+        Some(rest) => format!("get_{rest}"),
+        None => return primary,
+    };
+
+    // Try to parse the response as JSON. If it isn't JSON, or the
+    // shape doesn't match the pending pattern, just return as-is.
+    let parsed: Value = match serde_json::from_str(&primary) {
+        Ok(v) => v,
+        Err(_) => return primary,
+    };
+    let session_id = parsed
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let status = parsed
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let is_pending = matches!(
+        status,
+        "pending" | "queued" | "in_review" | "awaiting_approval"
+    );
+    let (Some(session_id), true) = (session_id, is_pending) else {
+        return primary;
+    };
+
+    // The companion tool must exist on the same server that handled
+    // the request — calling it on a different server would land in
+    // the wrong session-id namespace.
+    let server_has_companion = servers.iter().any(|s| {
+        s.tool_schemas
+            .iter()
+            .any(|t| t.function.name == tool_name)
+            && s.tool_schemas
+                .iter()
+                .any(|t| t.function.name == companion_name)
+    });
+    if !server_has_companion {
+        tracing::info!(
+            "[mcp/dispatch] auto-chain skipped: {} returned pending session_id={} \
+             but companion {} not found on the same server — passing the pending \
+             envelope to the model so it can decide what to do",
+            tool_name,
+            session_id,
+            companion_name
+        );
+        return primary;
+    }
+
+    let timeout_secs = crate::db::mcp_call_timeout_secs();
+    let chain_args = json!({
+        "session_id": session_id,
+        // Edge's flag — long-poll until the human clicks Conferma.
+        // Other MCP servers using the same naming pattern may
+        // ignore this kwarg, which is fine.
+        "wait_for_approval": true,
+        "wait_timeout_seconds": timeout_secs,
+    });
+    tracing::info!(
+        "[mcp/dispatch] auto-chain {} → {} with session_id={} \
+         (wait_for_approval=true, timeout={}s)",
+        tool_name,
+        companion_name,
+        session_id,
+        timeout_secs
+    );
+
+    let chained = dispatch_mcp_tool(servers, &companion_name, &chain_args).await;
+    tracing::info!(
+        "[mcp/dispatch] auto-chain done: {} → {} returned {} chars",
+        tool_name,
+        companion_name,
+        chained.len()
+    );
+    chained
+}
+
 async fn discover_mcp_for_user(state: &AppState, user_id: &str) -> Vec<McpDiscovered> {
     let ttl = crate::db::mcp_cache_ttl();
 
@@ -1954,7 +2070,17 @@ async fn stream_chat_root(
                             .await
                         } else {
                             tracing::info!("[chat] dispatching MCP tool: {}", call.name);
-                            dispatch_mcp_tool(&mcp_servers, &call.name, &call.input).await
+                            // Goes through the auto-chain wrapper so
+                            // `request_*` calls that return a pending
+                            // session_id automatically follow up with
+                            // `get_*` instead of returning the pending
+                            // envelope to the model.
+                            dispatch_mcp_tool_with_async_chain(
+                                &mcp_servers,
+                                &call.name,
+                                &call.input,
+                            )
+                            .await
                         };
                         progress_task.abort();
                         // For diagnostics: when a tool result is short
