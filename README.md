@@ -27,6 +27,47 @@ specialised on Danish law, see
 
 [upstream]: https://github.com/willchen96/mike
 
+## Interface
+
+A desktop window (Tauri) wrapping the Next.js frontend; the embedded axum
+backend runs in the same process. Two views to set expectations:
+
+### Chat with citations and inline document viewer
+
+![Chat answer with [g7] citation pill open in the PDF viewer, the cited passage highlighted on the page](docs/images/chat-with-citations.png)
+
+Numeric citation pills (`[1]`, `[2]`, …) and `[gN]`/`[pN]` KB tags both open
+the source document in the side panel. PDF.js text-search highlights the
+exact quote the model cited. Re-opening a chat re-renders all pills from
+persisted annotations — no stale `[Page N]` contamination thanks to a
+sanitisation pass on both the write and read path.
+
+### Authoritative-corpus sync (EUR-Lex shown)
+
+![EUR-Lex search panel: GDPR result with 'Sync...' button, indexed list with live 48/288 chunk-embed progress bar](docs/images/eurlex-sync.png)
+
+Search by CELEX, ELI, year/number, or free-text keywords; the panel
+auto-detects intent, probes EUR-Lex across all act types, and confirms
+which actually exist in the requested language. Indexed rows show their
+chunk count, status badge, and a live embedding progress bar driven by
+`/eurlex/embed-progress` polling. Same shape for the Italian Legal
+Corpus panel.
+
+### Internationalisation
+
+The UI is fully wired for i18n via
+[`next-intl`](https://next-intl.dev/) — every user-facing string lives in
+[`frontend/messages/`](frontend/messages/). Currently shipped: **English
+(`en.json`) and Italian (`it.json`)**. Adding a locale is one translation
+file plus an entry in the locale picker.
+
+> ⚠️ Development and screenshots use the UI in **Italian** — that's the
+> source-of-truth surface for visual review and copy iteration. The English
+> locale is kept current but typically lags by one or two iterations on
+> brand-new strings. Contributors adding UI: add the IT key first, then the
+> EN equivalent. **Never hardcode user-facing strings**, always go through
+> a `useTranslations` namespace key.
+
 ## Quick start
 
 ```bash
