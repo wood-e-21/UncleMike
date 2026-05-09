@@ -832,6 +832,17 @@ pub async fn read_jsonrpc_response(
     use tokio::time::{timeout, Duration, Instant};
 
     let deadline = Instant::now() + Duration::from_secs(max_secs);
+    let started_at = Instant::now();
+    // Periodic "still waiting" log when an SSE stream is silent for a
+    // while — useful for tools like Edge's pseudonymise-with-approval
+    // where the server holds the connection open while a human clicks
+    // "Conferma" in their UI. Without this log, the dispatch appeared
+    // to hang silently for minutes; now it's clear we're alive and
+    // waiting on the server.
+    let mut next_heartbeat = started_at + Duration::from_secs(15);
+    let mut chunk_count = 0usize;
+    let mut bytes_received = 0usize;
+
     let mut buf = String::new();
     let mut stream = resp.bytes_stream();
 
@@ -840,11 +851,38 @@ pub async fn read_jsonrpc_response(
         if now >= deadline { break; }
         let remaining = deadline.duration_since(now);
 
-        match timeout(remaining, stream.next()).await {
-            Err(_) => break,                            // overall timeout
+        // Wake every 15 s (or remaining, whichever is shorter) so we
+        // can emit a heartbeat log even if the stream is silent.
+        let wait = std::cmp::min(
+            remaining,
+            next_heartbeat.saturating_duration_since(now).max(Duration::from_millis(1)),
+        );
+
+        match timeout(wait, stream.next()).await {
+            Err(_) => {
+                // Wait timed out — but is it the heartbeat or the
+                // overall deadline? If we still have time left, log
+                // a heartbeat and keep going.
+                if Instant::now() < deadline {
+                    let elapsed_secs = started_at.elapsed().as_secs();
+                    tracing::info!(
+                        "[mcp/sse] still waiting on response… ({}s elapsed, {} chunks, {} bytes received so far, deadline at {}s)",
+                        elapsed_secs, chunk_count, bytes_received, max_secs
+                    );
+                    next_heartbeat = Instant::now() + Duration::from_secs(15);
+                    continue;
+                }
+                break;                                  // real overall timeout
+            }
             Ok(None) => break,                          // stream ended
             Ok(Some(Err(e))) => return Err(anyhow::anyhow!("stream error: {e}")),
             Ok(Some(Ok(bytes))) => {
+                chunk_count += 1;
+                bytes_received += bytes.len();
+                tracing::debug!(
+                    "[mcp/sse] chunk #{}: +{} bytes (total {} bytes, {}s elapsed)",
+                    chunk_count, bytes.len(), bytes_received, started_at.elapsed().as_secs()
+                );
                 buf.push_str(&String::from_utf8_lossy(&bytes));
 
                 // Pure-JSON response (e.g. when server doesn't use SSE).

@@ -234,14 +234,36 @@ async fn discover_one_mcp(server: McpServerOut) -> Option<McpDiscovered> {
 
 /// Dispatch a tool call to the right MCP server using its session id.
 /// Returns a string suitable for `tool` role message content.
+///
+/// Verbose phase-by-phase logging: every line carries the elapsed-ms
+/// since dispatch start so the user can see *exactly* where time
+/// goes — useful when an MCP tool requires interactive approval on
+/// the server side and the call appears to "hang".
 async fn dispatch_mcp_tool(
     servers: &[McpDiscovered],
     tool_name: &str,
     arguments: &Value,
 ) -> String {
+    let dispatch_start = std::time::Instant::now();
+    macro_rules! mtrace {
+        ($fmt:literal $(, $arg:expr)* $(,)?) => {
+            tracing::info!(
+                concat!("[mcp/dispatch] tool={} +{}ms — ", $fmt),
+                tool_name,
+                dispatch_start.elapsed().as_millis()
+                $(, $arg)*
+            )
+        };
+    }
+
     let Some(srv) = servers.iter().find(|s| {
         s.tool_schemas.iter().any(|t| t.function.name == tool_name)
     }) else {
+        tracing::warn!(
+            "[mcp/dispatch] tool={} +0ms — no MCP server provides this tool (known servers: {:?})",
+            tool_name,
+            servers.iter().map(|s| s.config_name.as_str()).collect::<Vec<_>>()
+        );
         return json!({"error": format!("No MCP server provides tool '{tool_name}'")}).to_string();
     };
     let Some(url) = &srv.url else {
@@ -249,6 +271,14 @@ async fn dispatch_mcp_tool(
     };
 
     let timeout_secs = crate::db::mcp_call_timeout_secs();
+    mtrace!(
+        "routing to server={} url={} session_id={} timeout={}s",
+        srv.config_name,
+        url,
+        srv.session_id.as_deref().unwrap_or("(none)"),
+        timeout_secs
+    );
+
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()
@@ -290,22 +320,58 @@ async fn dispatch_mcp_tool(
             "arguments": arguments,
         }
     });
+    let body_bytes = body.to_string().len();
+    mtrace!(
+        "POST {} (body {} bytes, {} args, headers: {:?})",
+        url,
+        body_bytes,
+        arguments
+            .as_object()
+            .map(|m| m.len())
+            .unwrap_or(0),
+        headers
+            .keys()
+            .map(|k| k.as_str())
+            .filter(|k| !k.eq_ignore_ascii_case("authorization")) // never log Bearer tokens
+            .collect::<Vec<_>>()
+    );
 
     let resp = match client.post(url).headers(headers).json(&body).send().await {
-        Ok(r) => r,
-        Err(e) => return json!({"error": format!("network: {e}")}).to_string(),
+        Ok(r) => {
+            mtrace!(
+                "POST returned: status={} content-type={:?}",
+                r.status(),
+                r.headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|h| h.to_str().ok())
+            );
+            r
+        }
+        Err(e) => {
+            mtrace!("POST failed: {}", e);
+            return json!({"error": format!("network: {e}")}).to_string();
+        }
     };
 
+    mtrace!("reading response body / SSE stream (timeout {}s)", timeout_secs);
     // Reader timeout matches the wire-level timeout — otherwise the
     // SSE stream reader could give up earlier than the HTTP client
     // and we'd lose a long but legitimate tool response (e.g. Edge
-    // pseudonymising a multi-MB document for 60-120 s).
+    // pseudonymising a multi-MB document, or a tool that requires
+    // interactive human approval before releasing the response).
     let val = match read_jsonrpc_response(resp, 100, timeout_secs).await {
-        Ok(v) => v,
-        Err(e) => return json!({"error": format!("read: {e}")}).to_string(),
+        Ok(v) => {
+            mtrace!("body decoded as JSON-RPC, ~{} chars", v.to_string().len());
+            v
+        }
+        Err(e) => {
+            mtrace!("body read failed: {}", e);
+            return json!({"error": format!("read: {e}")}).to_string();
+        }
     };
 
     if let Some(rpc_err) = val.get("error") {
+        mtrace!("JSON-RPC error in response: {}", rpc_err);
         return json!({"error": rpc_err}).to_string();
     }
 
@@ -317,10 +383,20 @@ async fn dispatch_mcp_tool(
             .filter_map(|c| c["text"].as_str().map(|s| s.to_string()))
             .collect();
         if !joined.is_empty() {
+            mtrace!(
+                "DONE — returning {} text chunk(s), {} total chars",
+                joined.len(),
+                joined.iter().map(|s| s.len()).sum::<usize>()
+            );
             return joined.join("\n");
         }
     }
-    val["result"].to_string()
+    let fallback = val["result"].to_string();
+    mtrace!(
+        "DONE — content array empty, returning result-as-string ({} chars)",
+        fallback.len()
+    );
+    fallback
 }
 
 async fn discover_mcp_for_user(state: &AppState, user_id: &str) -> Vec<McpDiscovered> {
