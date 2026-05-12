@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  docs:
+    name: Docs present and linted
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Required files present
+        run: |
+          test -f PLAN.md
+          for f in 00-anti-patterns 01-workspace-layout 02-item-frontmatter \
+                   03-sidecars 04-versioning 05-edges 06-mikeprj \
+                   07-rebuilds 08-security-model 09-performance; do
+            test -f "docs/${f}.md" || { echo "Missing docs/${f}.md"; exit 1; }
+          done
+          echo "All required docs present."
+
+      - name: Markdown lint
+        uses: DavidAnson/markdownlint-cli2-action@v16
+        with:
+          globs: |
+            PLAN.md
+            docs/0*.md
+            README.md
+        continue-on-error: true   # warn-only until we stabilize the style
