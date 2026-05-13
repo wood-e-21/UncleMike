@@ -1,7 +1,6 @@
 "use client";
 
 import { useId, useRef, useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import remarkGfm from "remark-gfm";
@@ -17,6 +16,8 @@ import type {
 } from "../shared/types";
 import { EditCard, applyOptimisticResolution } from "./EditCard";
 import { PreResponseWrapper } from "../shared/PreResponseWrapper";
+import { supabase } from "@/lib/supabase";
+import { getApiBase } from "@/app/lib/mikeApi";
 
 /**
  * Card rendered above the per-edit EditCards when a message produced
@@ -75,9 +76,11 @@ function BulkEditActions({
         setBusy(verb);
         setProgress({ done: 0, total: pending.length });
         try {
-                        const token = typeof window !== "undefined" ? localStorage.getItem("mike_auth_token") : null;
-            const apiBase =
-                process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+            const {
+                data: { session },
+            } = await supabase.auth.getSession();
+            const token = session?.access_token;
+            const apiBase = await getApiBase();
 
             // Sequential so the per-document version counter advances in a
             // predictable order and the viewer doesn't race between bumps.
@@ -244,7 +247,6 @@ function EditCardsSection({
     }) => void;
 }) {
     const [isOpen, setIsOpen] = useState(true);
-    const tA = useTranslations("Assistant");
     if (cards.length === 0) return null;
 
     const docCount = filenameByDocId.size;
@@ -266,7 +268,7 @@ function EditCardsSection({
                 </p>
                 <button
                     onClick={() => setIsOpen((v) => !v)}
-                    aria-label={isOpen ? tA("collapseEdits") : tA("expandEdits")}
+                    aria-label={isOpen ? "Collapse edits" : "Expand edits"}
                     className="shrink-0 rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-colors"
                 >
                     <ChevronDown
@@ -342,7 +344,13 @@ function ResponseStatus({ status }: { status: StatusState }) {
 // Event block components
 // ---------------------------------------------------------------------------
 
-const THINKING_PHRASE_COUNT = 5;
+const THINKING_PHRASES = [
+    "Thinking...",
+    "Pondering...",
+    "Analyzing...",
+    "Reviewing...",
+    "Reasoning...",
+];
 
 function ReasoningBlock({
     text,
@@ -353,14 +361,13 @@ function ReasoningBlock({
     isStreaming: boolean;
     showConnector?: boolean;
 }) {
-    const tA = useTranslations("Assistant");
     const [isOpen, setIsOpen] = useState(false);
     const [thinkingIndex, setThinkingIndex] = useState(0);
 
     useEffect(() => {
         if (!isStreaming) return;
         const interval = setInterval(() => {
-            setThinkingIndex((i) => (i + 1) % THINKING_PHRASE_COUNT);
+            setThinkingIndex((i) => (i + 1) % THINKING_PHRASES.length);
         }, 2000);
         return () => clearInterval(interval);
     }, [isStreaming]);
@@ -383,8 +390,8 @@ function ReasoningBlock({
                 )}
                 <span className="font-medium ml-2">
                     {isStreaming
-                        ? tA(`thinkingPhrases.${thinkingIndex}` as never)
-                        : tA("thoughtProcess")}
+                        ? THINKING_PHRASES[thinkingIndex]
+                        : "Thought process"}
                 </span>
                 {!isStreaming && (
                     <ChevronDown
@@ -425,7 +432,6 @@ function DocReadBlock({
     showConnector?: boolean;
     isStreaming?: boolean;
 }) {
-    const tA = useTranslations("Assistant");
     return (
         <div className="flex items-start text-sm font-serif text-gray-500 relative">
             {showConnector && (
@@ -438,7 +444,7 @@ function DocReadBlock({
             )}
             <div className="ml-2 min-w-0 flex-1 whitespace-normal break-words">
                 <span className="font-medium">
-                    {isStreaming ? tA("reading") : tA("read")}
+                    {isStreaming ? "Reading" : "Read"}
                 </span>{" "}
                 {isStreaming ? (
                     <span>{filename}...</span>
@@ -470,8 +476,7 @@ function DocFindBlock({
     isStreaming?: boolean;
     showConnector?: boolean;
 }) {
-    const tA = useTranslations("Assistant");
-    const label = isStreaming ? tA("finding") : tA("found");
+    const label = isStreaming ? "Finding" : "Found";
     const matchSuffix = isStreaming
         ? ""
         : ` (${totalMatches} ${totalMatches === 1 ? "match" : "matches"})`;
@@ -508,7 +513,6 @@ function DocCreatedBlock({
     showConnector?: boolean;
     isStreaming?: boolean;
 }) {
-    const tA = useTranslations("Assistant");
     return (
         <div className="flex items-start text-sm font-serif text-gray-500 relative">
             {showConnector && (
@@ -521,7 +525,7 @@ function DocCreatedBlock({
             )}
             <div className="ml-2 min-w-0 flex-1 whitespace-normal break-words">
                 <span className="font-medium">
-                    {isStreaming ? tA("creatingDoc") : tA("createdDoc")}
+                    {isStreaming ? "Creating" : "Created"}
                 </span>{" "}
                 <span>{isStreaming ? `${filename}...` : filename}</span>
             </div>
@@ -546,8 +550,7 @@ function DocReplicatedBlock({
     isStreaming?: boolean;
     hasError?: boolean;
 }) {
-    const tA = useTranslations("Assistant");
-    const label = isStreaming ? tA("replicating") : tA("replicated");
+    const label = isStreaming ? "Replicating" : "Replicated";
     const suffix =
         !isStreaming && count > 1 ? ` ${count} times` : isStreaming ? "..." : "";
     return (
@@ -602,10 +605,20 @@ function DocDownloadBlock({
     // Only backend-relative URLs are accepted. The download fetch carries
     // the user's bearer token, so any absolute URL from tool output is
     // refused to keep the token from leaking off-origin.
-    const API_BASE =
-        process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
     const isSafeHref = download_url.startsWith("/");
-    const href = isSafeHref ? `${API_BASE}${download_url}` : null;
+    const [resolvedApiBase, setResolvedApiBase] = useState<string | null>(null);
+    useEffect(() => {
+        if (!isSafeHref) return;
+        let mounted = true;
+        getApiBase().then((b) => {
+            if (mounted) setResolvedApiBase(b);
+        });
+        return () => {
+            mounted = false;
+        };
+    }, [isSafeHref]);
+    const href =
+        isSafeHref && resolvedApiBase ? `${resolvedApiBase}${download_url}` : null;
     const [busy, setBusy] = useState(false);
 
     const handleDownload = async (e?: {
@@ -617,7 +630,10 @@ function DocDownloadBlock({
         if (busy || isReloading || !href) return;
         setBusy(true);
         try {
-                        const token = typeof window !== "undefined" ? localStorage.getItem("mike_auth_token") : null;
+            const {
+                data: { session },
+            } = await supabase.auth.getSession();
+            const token = session?.access_token;
             const resp = await fetch(href, {
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
             });
@@ -754,7 +770,6 @@ function DocEditedBlock({
     isStreaming?: boolean;
     hasError?: boolean;
 }) {
-    const tA = useTranslations("Assistant");
     return (
         <div className="flex items-start text-sm font-serif text-gray-500 relative">
             {showConnector && (
@@ -770,10 +785,10 @@ function DocEditedBlock({
             <div className="ml-2 min-w-0 flex-1 whitespace-normal break-words">
                 <span className="font-medium">
                     {isStreaming
-                        ? tA("editing")
+                        ? "Editing"
                         : hasError
-                          ? tA("editFailed")
-                          : tA("edited")}
+                          ? "Edit failed"
+                          : "Edited"}
                 </span>{" "}
                 <span>{isStreaming ? `${filename}...` : filename}</span>
             </div>
@@ -790,48 +805,18 @@ function preprocessCitations(
     annotations: MikeCitationAnnotation[],
     citationsList: MikeCitationAnnotation[],
 ): string {
-    // Strip the trailing <CITATIONS>…</CITATIONS> JSON block (the model
-    // emits it for the backend; users shouldn't see raw JSON in their chat).
-    text = text.replace(/<CITATIONS>[\s\S]*?<\/CITATIONS>\s*$/i, "").trimEnd();
-
-    // Inline citation markers come in three flavours:
-    //   * `[1]`, `[2]`     — attached-document citations (ref-by-number).
-    //   * `[g1]`, `[g2]`   — KB chunks from the global pool, ref-by-doc_id.
-    //   * `[p1]`, `[p2]`   — KB chunks from a project pool.
-    // The regex captures one or more such tokens separated by commas:
-    // `[1, 2]`, `[g1, g3]`, `[1, g2]` are all valid.
-    return text.replace(/\[((?:g|p)?\d+(?:,\s*(?:g|p)?\d+)*)\]/gi, (full, refsStr) => {
-        const tokens = (refsStr as string)
+    // Replace [N] or [N, M, ...] inline markers with internal §idx§ tokens backed by annotations
+    return text.replace(/\[(\d+(?:,\s*\d+)*)\]/g, (full, refsStr) => {
+        const refs = (refsStr as string)
             .split(",")
-            .map((s) => s.trim())
-            .flatMap((tok) => {
-                const isAlpha = /^[gp]\d+$/i.test(tok);
-                // Heuristic: pure numeric tokens with 4+ digits are
-                // almost always years embedded in the prose ("2026"),
-                // not citation refs. Skip them silently — they'd never
-                // resolve anyway, and the warn-log would drown the
-                // console for every such occurrence on every render.
-                if (!isAlpha && tok.length >= 4) return [];
-                const ann = isAlpha
-                    ? annotations.find(
-                          (a) =>
-                              a.doc_id === tok.toLowerCase() &&
-                              (a.source === "kb" || a.source === "tool"),
-                      )
-                    : annotations.find((a) => a.ref === parseInt(tok, 10));
-                if (!ann) {
-                    // No-op when the streaming hasn't yet delivered the
-                    // citations event (annotations === []). The render
-                    // re-runs after each content_delta, so warning every
-                    // time would spam thousands of lines. The
-                    // `[chat] citations received` log in useAssistantChat
-                    // remains the authoritative signal.
-                    return [];
-                }
-                const idx = citationsList.length;
-                citationsList.push(ann); // close inline-citation push
-                return [`\`§${idx}§\`\u200B`];
-            });
+            .map((s: string) => parseInt(s.trim(), 10));
+        const tokens = refs.flatMap((ref: number) => {
+            const ann = annotations.find((a) => a.ref === ref);
+            if (!ann) return [];
+            const idx = citationsList.length;
+            citationsList.push(ann);
+            return [`\`§${idx}§\`\u200B`];
+        });
         return tokens.length > 0 ? tokens.join("") : full;
     });
 }
@@ -957,35 +942,13 @@ function MarkdownContent({
                             const idx = parseInt(citMatch[1]);
                             const annotation = citationsList[idx];
                             if (annotation) {
-                                // KB citations come from the RAG retrieval — the
-                                // tooltip surfaces the source path and chunk
-                                // index instead of a page number, and the pill
-                                // gets a distinct styling so the user can tell
-                                // at a glance "this is from my library, not
-                                // from the attached doc".
-                                const isKb = annotation.source === "kb" || annotation.source === "tool";
-                                const tooltipText = isKb
-                                    ? `${annotation.scope === "project" ? "Progetto" : "Libreria"} · ${annotation.filename}` +
-                                      (annotation.chunk_index !== undefined
-                                          ? ` (chunk ${annotation.chunk_index})`
-                                          : "") +
-                                      `: "${displayCitationQuote(annotation)}"`
-                                    : `${formatCitationPage(annotation)}: "${displayCitationQuote(annotation)}"`;
-                                const pillClass = isKb
-                                    ? annotation.scope === "project"
-                                        ? "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
-                                        : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
-                                    : "bg-gray-100 text-gray-900 hover:bg-gray-200";
+                                const tooltipText = `${formatCitationPage(annotation)}: "${displayCitationQuote(annotation)}"`;
                                 return (
                                     <button
                                         onClick={() => {
-                                            console.log(
-                                                "[AssistantMessage] citation clicked",
-                                                annotation,
-                                            );
                                             onCitationClick?.(annotation);
                                         }}
-                                        className={`mx-0.5 inline-flex items-center justify-center rounded-full w-4 h-4 text-[10px] font-medium transition-colors align-super ${pillClass}`}
+                                        className="mx-0.5 inline-flex items-center justify-center rounded-full w-4 h-4 text-[10px] font-medium transition-colors align-super bg-gray-100 text-gray-900 hover:bg-gray-200"
                                         title={tooltipText}
                                     >
                                         {idx + 1}
@@ -1117,7 +1080,6 @@ export function AssistantMessage({
     resolvedEditStatuses,
 }: Props) {
     const messageKey = useId();
-    const tA = useTranslations("Assistant");
     const contentDivRef = useRef<HTMLDivElement | null>(null);
     const [isCopied, setIsCopied] = useState(false);
     // Per-document override of the download URL, set as Accept/Reject resolves
@@ -1133,7 +1095,6 @@ export function AssistantMessage({
         versionId: string | null;
         downloadUrl: string | null;
     }) => {
-        console.log("[AssistantMessage] handleEditResolved", args);
         if (args.downloadUrl) {
             setResolvedOverrides((prev) => ({
                 ...prev,
@@ -1272,30 +1233,19 @@ export function AssistantMessage({
             );
         }
         if (event.type === "tool_call_start") {
-            const elapsed = event.elapsedSecs ?? 0;
-            const showSlowHint = elapsed >= 10;
             return (
-                <div key={globalIdx} className="relative">
-                    <div className="flex items-center text-sm font-serif text-gray-500">
-                        {showConnector && (
-                            <div className="absolute bottom-0 w-[1px] bg-gray-300 top-[13px] left-[2.5px] h-[calc(100%+11px)]" />
-                        )}
-                        <div className="w-1.5 h-1.5 rounded-full border border-gray-400 border-t-transparent animate-spin shrink-0" />
-                        <span className="font-medium ml-2">{tA("running")}</span>
-                        <span className="ml-1">
-                            {event.name ? `${event.name}...` : "tool..."}
-                        </span>
-                        {elapsed > 0 && (
-                            <span className="ml-2 text-xs text-gray-400 tabular-nums">
-                                {elapsed}s
-                            </span>
-                        )}
-                    </div>
-                    {showSlowHint && (
-                        <div className="ml-4 mt-1 text-xs text-amber-700 italic leading-snug">
-                            {tA("slowToolHint")}
-                        </div>
+                <div
+                    key={globalIdx}
+                    className="flex items-center text-sm font-serif text-gray-500 relative"
+                >
+                    {showConnector && (
+                        <div className="absolute bottom-0 w-[1px] bg-gray-300 top-[13px] left-[2.5px] h-[calc(100%+11px)]" />
                     )}
+                    <div className="w-1.5 h-1.5 rounded-full border border-gray-400 border-t-transparent animate-spin shrink-0" />
+                    <span className="font-medium ml-2">Running</span>
+                    <span className="ml-1">
+                        {event.name ? `${event.name}...` : "tool..."}
+                    </span>
                 </div>
             );
         }
@@ -1309,7 +1259,7 @@ export function AssistantMessage({
                         <div className="absolute bottom-0 w-[1px] bg-gray-300 top-[13px] left-[2.5px] h-[calc(100%+11px)]" />
                     )}
                     <div className="w-1.5 h-1.5 rounded-full border border-gray-400 border-t-transparent animate-spin shrink-0" />
-                    <span className="ml-2">{tA("thinkingDots")}</span>
+                    <span className="ml-2">Thinking...</span>
                 </div>
             );
         }
@@ -1540,7 +1490,7 @@ export function AssistantMessage({
                 {isError && (
                     <div className="mt-2 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-serif text-red-700">
                         <span className="leading-snug">
-                            {errorMessage ?? tA("genericError")}
+                            {errorMessage ?? "Sorry, something went wrong."}
                         </span>
                     </div>
                 )}

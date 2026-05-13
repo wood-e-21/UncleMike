@@ -863,7 +863,7 @@ export default function ProjectAssistantChatPage({ params }: Props) {
                                     <input
                                         ref={fileInputRef}
                                         type="file"
-                                        accept=".pdf,.docx,.doc,.xlsx,.xls,.xlsb,.ods,.csv,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff"
+                                        accept=".pdf,.docx,.doc"
                                         multiple
                                         className="hidden"
                                         onChange={(e) =>

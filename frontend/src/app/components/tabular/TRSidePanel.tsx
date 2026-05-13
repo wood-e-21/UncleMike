@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -75,8 +74,6 @@ export function TRSidePanel({
         currentPos < sortedColumns.length - 1
             ? sortedColumns[currentPos + 1]
             : null;
-    const tA = useTranslations("Assistant");
-    const tT = useTranslations("Tabular");
     const [regenerating, setRegenerating] = useState(false);
     const [quoteExpanded, setQuoteExpanded] = useState(false);
     const [isTruncated, setIsTruncated] = useState(false);
@@ -230,7 +227,7 @@ export function TRSidePanel({
                                 }
                             }}
                             disabled={regenerating}
-                            title={tA("regenerate")}
+                            title="Regenerate"
                             className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
                         >
                             {regenerating ? (
@@ -264,7 +261,7 @@ export function TRSidePanel({
                         {cell.content?.flag && (
                             <div className="mb-5">
                                 <h4 className="mb-2 text-sm font-semibold tracking-wider font-sans">
-                                    {tT("flag")}
+                                    Flag
                                 </h4>
                                 <span
                                     className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${FLAG_BADGE[cell.content.flag] ?? FLAG_BADGE.grey}`}
@@ -278,7 +275,7 @@ export function TRSidePanel({
                         {/* Results */}
                         <div className="mb-6">
                             <h4 className="mb-2 text-sm font-semibold tracking-wider font-sans">
-                                {tT("results")}
+                                Results
                             </h4>
                             <div className="text-xs leading-relaxed text-slate-600">
                                 <MarkdownContent
@@ -295,7 +292,7 @@ export function TRSidePanel({
                         {cell.content?.reasoning && (
                             <div>
                                 <h4 className="mb-2 text-sm font-semibold tracking-wider font-sans">
-                                    {tT("reasoning")}
+                                    Reasoning
                                 </h4>
                                 <div className="text-xs leading-relaxed text-slate-600">
                                     <MarkdownContent
@@ -330,13 +327,12 @@ function CitationBadge({
     citation: ParsedCitation;
     onClick: (c: { quote: string; page: number }) => void;
 }) {
-    const tT = useTranslations("Tabular");
     return (
         <button
             type="button"
             data-page={citation.page}
             data-quote={citation.quote}
-            title={tT("citationTitle", { page: citation.page, quote: citation.quote })}
+            title={`Page ${citation.page}: "${citation.quote}"`}
             onClick={() =>
                 onClick({ quote: citation.quote, page: citation.page })
             }

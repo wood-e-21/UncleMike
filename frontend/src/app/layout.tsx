@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import { Inter, EB_Garamond } from "next/font/google";
-import { NextIntlClientProvider } from "next-intl";
-import { getLocale, getMessages } from "next-intl/server";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 
@@ -17,8 +15,9 @@ const ebGaramond = EB_Garamond({
 });
 
 export const metadata: Metadata = {
-    title: "MikeRust",
-    description: "MikeRust — local AI assistant.",
+    title: "Mike - AI Legal Platform",
+    description:
+        "AI-powered legal document analysis and contract review platform.",
     icons: {
         icon: [
             { url: "/icon.svg", type: "image/svg+xml" },
@@ -28,22 +27,17 @@ export const metadata: Metadata = {
     },
 };
 
-export default async function RootLayout({
+export default function RootLayout({
     children,
 }: Readonly<{
     children: React.ReactNode;
 }>) {
-    const locale = await getLocale();
-    const messages = await getMessages();
-
     return (
-        <html lang={locale}>
+        <html lang="en">
             <body
                 className={`${inter.variable} ${ebGaramond.variable} font-sans antialiased`}
             >
-                <NextIntlClientProvider locale={locale} messages={messages}>
-                    <Providers>{children}</Providers>
-                </NextIntlClientProvider>
+                <Providers>{children}</Providers>
             </body>
         </html>
     );

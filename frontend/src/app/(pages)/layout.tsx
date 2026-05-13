@@ -64,15 +64,11 @@ export default function MikeLayout({
         }
     }, [authLoading, isAuthenticated, router]);
 
-    if (authLoading) {
-        return (
-            <div className="flex h-screen items-center justify-center">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-gray-700" />
-            </div>
-        );
-    }
-
-    if (!isAuthenticated) return null;
+    // The lock screen already showed "Unlocking…" → "Starting your workspace…"
+    // by the time we reach this layout. Showing another spinner here just
+    // adds a flash of "loading loop" on top of an already-loading window.
+    // Render nothing for the brief window before isAuthenticated resolves.
+    if (authLoading || !isAuthenticated) return null;
 
     return (
         <ChatHistoryProvider>

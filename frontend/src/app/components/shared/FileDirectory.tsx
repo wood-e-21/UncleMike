@@ -12,35 +12,6 @@ import {
 } from "lucide-react";
 import type { MikeDocument, MikeProject } from "./types";
 import { VersionChip } from "./VersionChip";
-import {
-    FileSupportBadge,
-    isImageExtension,
-} from "./DocumentSupportNotice";
-
-/**
- * Decide which (if any) RAG-support badge to show next to a doc:
- *   - image extensions → "image" chip
- *   - image-typed file_type → same
- *   - PDF files where the backend reported the extracted text was empty
- *     (server-detected scanned) → "scanned" chip. Today the schema
- *     doesn't carry that bit yet; this hook returns null for PDFs and
- *     the parent route will refine it once the upload pipeline forwards
- *     `is_scanned` flag through MikeDocument.
- */
-function pickFileBadge(doc: MikeDocument): "image" | "scanned" | null {
-    if (
-        doc.file_type === "png" ||
-        doc.file_type === "jpeg" ||
-        doc.file_type === "tiff" ||
-        isImageExtension(doc.filename)
-    ) {
-        return "image";
-    }
-    if (doc.file_type === "pdf" && (doc as { is_scanned?: boolean }).is_scanned) {
-        return "scanned";
-    }
-    return null;
-}
 
 function formatDate(iso: string | null) {
     if (!iso) return null;
@@ -244,12 +215,6 @@ export function FileDirectory({
                             >
                                 {doc.filename}
                             </span>
-                            {(() => {
-                                const badge = pickFileBadge(doc);
-                                return badge ? (
-                                    <FileSupportBadge kind={badge} short />
-                                ) : null;
-                            })()}
                             <VersionChip n={doc.latest_version_number} />
                             {doc.created_at && (
                                 <span className="shrink-0 text-gray-300">
@@ -344,12 +309,6 @@ export function FileDirectory({
                                                     >
                                                         {doc.filename}
                                                     </span>
-                                                    {(() => {
-                                                        const badge = pickFileBadge(doc);
-                                                        return badge ? (
-                                                            <FileSupportBadge kind={badge} short />
-                                                        ) : null;
-                                                    })()}
                                                     <VersionChip
                                                         n={doc.latest_version_number}
                                                     />

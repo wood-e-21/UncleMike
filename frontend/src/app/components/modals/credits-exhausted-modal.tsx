@@ -1,6 +1,4 @@
-"use client";
-
-import { useLocale, useTranslations } from "next-intl";
+import { X } from "lucide-react";
 import { createPortal } from "react-dom";
 
 interface CreditsExhaustedModalProps {
@@ -14,14 +12,12 @@ export function CreditsExhaustedModal({
     onClose,
     resetDate,
 }: CreditsExhaustedModalProps) {
-    const t = useTranslations("Modals.creditsExhausted");
-    const tCommon = useTranslations("Common");
-    const locale = useLocale();
     if (!isOpen) return null;
 
+    // Format the reset date
     const formatResetDate = (dateString: string) => {
         const date = new Date(dateString);
-        return date.toLocaleDateString(locale, {
+        return date.toLocaleDateString("en-US", {
             month: "long",
             day: "numeric",
             year: "numeric",
@@ -42,19 +38,20 @@ export function CreditsExhaustedModal({
                     {/* Header */}
                     <div className="flex items-start justify-between mb-4">
                         <h2 className="text-3xl font-light font-eb-garamond text-gray-900">
-                            {t("title")}
+                            Message Limit Reached
                         </h2>
                     </div>
 
                     {/* Content */}
                     <div className="space-y-4">
                         <p className="text-gray-600">
-                            {t("body")}
+                            You've reached your monthly message limit of 100
+                            messages.
                         </p>
 
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                             <p className="text-sm text-blue-900 font-medium mb-1">
-                                {t("resetLabel")}
+                                Your credits will reset on:
                             </p>
                             <p className="text-lg font-semibold text-blue-700">
                                 {formatResetDate(resetDate)}
@@ -62,7 +59,8 @@ export function CreditsExhaustedModal({
                         </div>
 
                         <p className="text-sm text-gray-500">
-                            {t("resetHint")}
+                            Your message credits automatically reset on the
+                            first day of each month.
                         </p>
                     </div>
 
@@ -72,7 +70,7 @@ export function CreditsExhaustedModal({
                             onClick={onClose}
                             className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors"
                         >
-                            {tCommon("close")}
+                            Close
                         </button>
                     </div>
                 </div>

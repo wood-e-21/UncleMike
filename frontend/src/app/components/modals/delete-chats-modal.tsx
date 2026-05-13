@@ -1,8 +1,7 @@
 "use client";
 
-import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
-import { Check } from "lucide-react";
+import { X, Check } from "lucide-react";
 
 interface DeleteChatsModalProps {
     isOpen: boolean;
@@ -21,8 +20,6 @@ export function DeleteChatsModal({
     isDeleting,
     isSuccess = false,
 }: DeleteChatsModalProps) {
-    const t = useTranslations("Modals.deleteChats");
-    const tCommon = useTranslations("Common");
     if (!isOpen) return null;
 
     return (
@@ -44,10 +41,11 @@ export function DeleteChatsModal({
                                     <Check className="h-8 w-8 text-green-600" />
                                 </div>
                                 <h2 className="text-3xl font-light font-eb-garamond text-gray-900 mb-2">
-                                    {t("successTitle")}
+                                    All Chats Deleted
                                 </h2>
                                 <p className="text-gray-600 text-sm">
-                                    {t("successBody")}
+                                    Your chat history has been successfully
+                                    deleted.
                                 </p>
                             </div>
                         </>
@@ -56,14 +54,17 @@ export function DeleteChatsModal({
                             {/* Header */}
                             <div className="flex items-center justify-between mb-6">
                                 <h2 className="text-4xl font-light font-eb-garamond text-red-700">
-                                    {t("deleteAll")}
+                                    Delete All Chats
                                 </h2>
                             </div>
 
                             {/* Content */}
                             <div className="space-y-4">
                                 <p className="text-gray-600 text-sm leading-relaxed">
-                                    {t("bodyAll", { count: chatCount })}
+                                    Are you sure you want to delete all{" "}
+                                    {chatCount} chat
+                                    {chatCount !== 1 ? "s" : ""}? This action is
+                                    permanent and cannot be undone.
                                 </p>
 
                                 <div className="space-y-3 pt-4">
@@ -74,8 +75,8 @@ export function DeleteChatsModal({
                                         className="w-full bg-red-600 hover:bg-red-700 text-white"
                                     >
                                         {isDeleting
-                                            ? t("deleting")
-                                            : t("deleteAll")}
+                                            ? "Deleting..."
+                                            : "Delete All Chats"}
                                     </Button>
                                     <Button
                                         onClick={onClose}
@@ -83,7 +84,7 @@ export function DeleteChatsModal({
                                         disabled={isDeleting}
                                         className="w-full border-gray-300 text-gray-700 hover:bg-gray-50"
                                     >
-                                        {tCommon("cancel")}
+                                        Cancel
                                     </Button>
                                 </div>
                             </div>

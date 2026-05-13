@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
 import {
     Plus,
     Library,
@@ -34,32 +33,16 @@ type Tab = "all" | "builtin" | "custom" | "hidden";
 const CHECK_W = "w-8 shrink-0";
 const NAME_COL_W = "w-[300px] shrink-0";
 
+const TABS: { id: Tab; label: string }[] = [
+    { id: "all", label: "All Workflows" },
+    { id: "builtin", label: "Built-in" },
+    { id: "custom", label: "Custom" },
+    { id: "hidden", label: "Hidden" },
+];
+
 export function WorkflowList() {
     const router = useRouter();
     const { user } = useAuth();
-    const t = useTranslations("Workflows");
-    const tPractice = useTranslations("Workflows.practiceLabels");
-    const tCommon = useTranslations("Common");
-
-    // Practice labels live in builtinWorkflows.ts as English strings
-    // (data shape, not UI). The catalog has translations for the known
-    // values; user-defined practices fall back to the raw string so the
-    // user sees exactly what they typed.
-    const translatePractice = (raw: string | null | undefined): string => {
-        if (!raw) return "";
-        try {
-            return tPractice(raw as never);
-        } catch {
-            return raw;
-        }
-    };
-
-    const tabs: { id: Tab; label: string }[] = [
-        { id: "all", label: t("tabAll") },
-        { id: "builtin", label: t("tabBuiltin") },
-        { id: "custom", label: t("tabCustom") },
-        { id: "hidden", label: t("tabHidden") },
-    ];
     const [custom, setCustom] = useState<MikeWorkflow[]>([]);
     const [loading, setLoading] = useState(true);
     const [selected, setSelected] = useState<MikeWorkflow | null>(null);
@@ -377,13 +360,13 @@ export function WorkflowList() {
             {/* Page header */}
             <div className="flex items-center justify-between px-8 py-4 shrink-0">
                 <h1 className="text-2xl font-medium font-serif text-gray-900">
-                    {t("title")}
+                    Workflows
                 </h1>
                 <div className="flex items-center gap-2">
                     <HeaderSearchBtn
                         value={search}
                         onChange={setSearch}
-                        placeholder={t("searchPlaceholder")}
+                        placeholder="Search workflows…"
                     />
                     <button
                         onClick={() => setNewModalOpen(true)}
@@ -395,7 +378,7 @@ export function WorkflowList() {
             </div>
 
             <ToolbarTabs
-                tabs={tabs}
+                tabs={TABS}
                 active={activeTab}
                 onChange={setActiveTab}
                 actions={toolbarActions}
@@ -420,11 +403,11 @@ export function WorkflowList() {
                             )}
                         </div>
                         <div className={`sticky left-8 z-[60] ${NAME_COL_W} bg-white pl-2 text-left`}>
-                            {tCommon("name")}
+                            Name
                         </div>
-                        <div className="ml-auto w-28 shrink-0">{t("type")}</div>
-                        <div className="w-40 shrink-0">{t("practice")}</div>
-                        <div className="w-28 shrink-0">{t("source")}</div>
+                        <div className="ml-auto w-28 shrink-0">Type</div>
+                        <div className="w-40 shrink-0">Practice</div>
+                        <div className="w-28 shrink-0">Source</div>
                         <div className="w-8 shrink-0" />
                     </div>
 
@@ -458,36 +441,41 @@ export function WorkflowList() {
                                 <>
                                     <Library className="h-8 w-8 text-gray-300 mb-4" />
                                     <p className="text-2xl font-medium font-serif text-gray-900">
-                                        {t("customTitle")}
+                                        Custom Workflows
                                     </p>
                                     <p className="mt-1 text-xs text-gray-400 text-left">
-                                        {t("customHint")}
+                                        Build reusable prompts and tabular
+                                        review templates tailored to your
+                                        practice.
                                     </p>
                                     <button
                                         onClick={() => setNewModalOpen(true)}
                                         className="mt-4 inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700 transition-colors shadow-md"
                                     >
-                                        {t("createNew")}
+                                        + Create New
                                     </button>
                                 </>
                             ) : activeTab === "hidden" ? (
                                 <>
                                     <Library className="h-8 w-8 text-gray-300 mb-4" />
                                     <p className="text-2xl font-medium font-serif text-gray-900">
-                                        {t("hiddenTitle")}
+                                        Hidden Workflows
                                     </p>
                                     <p className="mt-1 text-xs text-gray-400 text-left">
-                                        {t("hiddenHint")}
+                                        Built-in workflows you've hidden will
+                                        appear here. You can unhide them at any
+                                        time.
                                     </p>
                                 </>
                             ) : (
                                 <>
                                     <Library className="h-8 w-8 text-gray-300 mb-4" />
                                     <p className="text-2xl font-medium font-serif text-gray-900">
-                                        {t("title")}
+                                        Workflows
                                     </p>
                                     <p className="mt-1 text-xs text-gray-400 text-left">
-                                        {t("allHint")}
+                                        Automate document analysis with reusable
+                                        prompts and tabular review templates.
                                     </p>
                                 </>
                             )}

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
 import { X } from "lucide-react";
 import { DocPanel, type DocPanelMode } from "../shared/DocPanel";
 import type {
@@ -29,13 +28,6 @@ type CommonTab = {
     versionNumber: number | null;
     warning?: string | null;
     initialScrollTop?: number | null;
-    /**
-     * KB-indexed local file path. When set, the panel fetches bytes via
-     * `/sync/kb-doc?path=<kbPath>` instead of the upload-flow endpoints.
-     * Set by `ChatView.openCitation` when the citation has source `kb`
-     * (auto-retrieval) or `tool` (search_kb fetch).
-     */
-    kbPath?: string | null;
 };
 
 export type DocumentTab = CommonTab & { kind: "document" };
@@ -109,7 +101,6 @@ export function AssistantSidePanel({
     onWarningDismiss,
     onScrollChange,
 }: Props) {
-    const tA = useTranslations("Assistant");
     const panelRef = useRef<HTMLDivElement>(null);
     const [panelWidth, setPanelWidth] = useState(() =>
         typeof window !== "undefined"
@@ -220,7 +211,7 @@ export function AssistantSidePanel({
                 <button
                     onClick={onCloseAll}
                     className="shrink-0 mb-1 ml-1 rounded-lg p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-700"
-                    title={tA("closePanel")}
+                    title="Close panel"
                 >
                     <X className="h-4 w-4" />
                 </button>
@@ -262,7 +253,6 @@ export function AssistantSidePanel({
                                 versionId={tab.versionId}
                                 versionNumber={tab.versionNumber}
                                 mode={mode}
-                                kbPath={tab.kbPath ?? null}
                                 isReloading={
                                     isEditorReloading?.(tab.documentId) ?? false
                                 }

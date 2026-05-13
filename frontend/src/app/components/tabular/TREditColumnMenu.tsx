@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
 import { ChevronDown, Loader2, MoreHorizontal, Plus, Trash2, X } from "lucide-react";
 import type { ColumnConfig, ColumnFormat } from "../shared/types";
 import { generateTabularColumnPrompt } from "@/app/lib/mikeApi";
@@ -28,8 +27,6 @@ export function TREditColumnMenu({
     onSave,
     onDelete,
 }: TREditColumnMenuProps) {
-    const t = useTranslations("WorkflowColumns");
-    const tCommon = useTranslations("Common");
     const [open, setOpen] = useState(false);
     const [name, setName] = useState(column.name);
     const [prompt, setPrompt] = useState(column.prompt);
@@ -139,7 +136,7 @@ export function TREditColumnMenu({
                 >
                     <div className="flex items-center justify-between mb-3">
                         <p className="text-sm font-medium text-gray-800">
-                            {t("editColumn")}
+                            Edit Column
                         </p>
                         <button
                             type="button"
@@ -150,7 +147,7 @@ export function TREditColumnMenu({
                         </button>
                     </div>
                     <label className="text-xs font-medium text-gray-800">
-                        {t("label")}
+                        Label
                     </label>
                     <input
                         type="text"
@@ -162,7 +159,7 @@ export function TREditColumnMenu({
                     {/* Format */}
                     <div className="mt-3">
                         <label className="text-xs font-medium text-gray-800">
-                            {t("format")}
+                            Format
                         </label>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -242,7 +239,7 @@ export function TREditColumnMenu({
                                     onKeyDown={handleTagKeyDown}
                                     onBlur={commitTag}
                                     placeholder={
-                                        tags.length === 0 ? t("addTagsPlural") : ""
+                                        tags.length === 0 ? "Add tags…" : ""
                                     }
                                     className="min-w-[60px] flex-1 bg-transparent text-xs text-gray-700 placeholder-gray-300 focus:outline-none"
                                 />
@@ -254,7 +251,7 @@ export function TREditColumnMenu({
                     <div className="mt-3">
                         <div className="flex items-center justify-between">
                             <label className="text-xs font-medium text-gray-800">
-                                {t("prompt")}
+                                Prompt
                             </label>
                             <button
                                 type="button"
@@ -267,7 +264,7 @@ export function TREditColumnMenu({
                                 ) : (
                                     <Plus className="h-3 w-3" />
                                 )}
-                                {t("autoGenerate")}
+                                Auto-generate
                             </button>
                         </div>
                         <textarea
@@ -286,7 +283,7 @@ export function TREditColumnMenu({
                             className="inline-flex items-center gap-1.5 text-xs text-red-500 transition-colors hover:text-red-600 disabled:text-red-300"
                         >
                             <Trash2 className="h-3.5 w-3.5" />
-                            {tCommon("delete")}
+                            Delete
                         </button>
                         <button
                             type="button"
@@ -300,7 +297,7 @@ export function TREditColumnMenu({
                             }
                             className="rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-gray-700 disabled:opacity-40"
                         >
-                            {saving ? tCommon("saving") : tCommon("save")}
+                            {saving ? "Saving…" : "Save"}
                         </button>
                     </div>
                 </div>

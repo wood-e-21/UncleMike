@@ -24,13 +24,6 @@ export interface MikeProject {
   document_count?: number;
   chat_count?: number;
   review_count?: number;
-  /**
-   * RAG isolation: 'shared' (default) means chats inside this project
-   * see global pool + project pool; 'strict' means project pool only.
-   * Used by the chat dispatcher's retrieve_kb_chunks() to pick the
-   * right SearchScope on every turn.
-   */
-  isolation_mode?: "shared" | "strict";
 }
 
 export interface MikeDocument {
@@ -93,13 +86,6 @@ export type AssistantEvent =
         type: "tool_call_start";
         name: string;
         isStreaming?: boolean;
-        /** Updated in place by `tool_call_progress` SSE events the backend
-         *  emits every 5 s while a tool is still in flight. The UI uses
-         *  this to show "Sto eseguendo X (Ns)…" so the user knows the
-         *  long wait is intentional (e.g. an MCP tool that requires a
-         *  manual approval click on the server side). Absent on the
-         *  initial event; populated thereafter. */
-        elapsedSecs?: number;
     }
   | { type: "thinking"; isStreaming?: boolean }
   | {
@@ -190,22 +176,6 @@ export interface MikeCitationAnnotation {
   filename: string;
   page: number | string;
   quote: string;
-
-  /**
-   * Where this citation came from. Set by the backend at parse time so
-   * the UI can render the right badge and pick the right opener:
-   *  - "attached" (default) → user-attached document, opened via
-   *    `/document/{id}/...` like before
-   *  - "kb" → retrieved from the RAG knowledge base (auto-retrieval).
-   *    `path` is the absolute filesystem path; `chunk_index` is the
-   *    chunk number; `scope` is "global" or "project"
-   *  - "tool"  → fetched by the model via `search_kb` tool
-   *    (placeholder — tool not yet implemented)
-   */
-  source?: "attached" | "kb" | "tool";
-  scope?: "global" | "project";
-  path?: string;
-  chunk_index?: number;
 }
 
 const PAGE_BREAK_SENTINEL = "[[PAGE_BREAK]]";

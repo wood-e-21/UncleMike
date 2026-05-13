@@ -15,12 +15,6 @@ import {
 
 interface Props {
     doc: { document_id: string; version_id?: string | null } | null;
-    /**
-     * RAG-indexed local file. When set, the underlying fetcher hits
-     * `/sync/kb-doc?path=<kbPath>` instead of the upload-flow endpoint.
-     * If both `doc` and `kbPath` are provided, `kbPath` wins.
-     */
-    kbPath?: string | null;
     /** Preferred: one or more (page, quote) pairs to highlight. */
     quotes?: CitationQuote[];
     /** Back-compat single-quote API. Ignored if `quotes` is provided. */
@@ -47,7 +41,6 @@ type RenderedPage = {
 
 export function DocView({
     doc,
-    kbPath,
     quotes,
     quote,
     fallbackPage,
@@ -84,7 +77,6 @@ export function DocView({
     const { result, loading, error } = useFetchSingleDoc(
         doc?.document_id ?? null,
         doc?.version_id ?? null,
-        kbPath ?? null,
     );
 
     // /display returned DOCX bytes — the active version has no PDF
@@ -539,11 +531,10 @@ export function DocView({
         }
     }
 
-    if (fallbackToDocx && (doc?.document_id || kbPath)) {
+    if (fallbackToDocx && doc?.document_id) {
         return (
             <DocxView
-                documentId={doc?.document_id ?? "kb"}
-                kbPath={kbPath ?? undefined}
+                documentId={doc.document_id}
                 quotes={quotes}
             />
         );

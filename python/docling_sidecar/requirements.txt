@@ -1,0 +1,33 @@
+# Mike Local — Docling sidecar
+# FastAPI/Uvicorn server that wraps Docling's DocumentConverter + HybridChunker.
+# The Electron main process spawns this next to the Express backend; it
+# discovers the port via <workspace>/.mike/docling-runtime.json.
+
+# HTTP server
+fastapi>=0.110,<1
+uvicorn[standard]>=0.27,<1
+
+# Docling — IBM document understanding pipeline
+# (PDF/DOCX/HTML/IMAGE → DoclingDocument → Markdown + chunks)
+docling>=2.5,<3
+docling-core[chunking]>=2.0,<3
+
+# HybridChunker tokenizer — defaults to sentence-transformers/all-MiniLM-L6-v2.
+# `transformers` alone can fetch the tokenizer; `sentence-transformers` itself
+# is NOT required (it's only useful if you want to embed chunks for retrieval,
+# which Mike doesn't do today). Keeping it out shaves ~250 MB.
+transformers>=4.40
+semchunk>=2.2
+
+# OCR engine for scanned PDFs. Docling's OcrAutoOptions auto-picks the
+# first installed engine in this preference order:
+#   ocrmac    (Apple Vision; macOS-only; fastest + most accurate via Neural
+#              Engine; installed via the marker below)
+#   rapidocr  (cross-platform onnxruntime backend; ~33 MB; CPU-only)
+#   easyocr   (heavier; pulls torch; not listed here — install yourself if
+#              you prefer it)
+ocrmac>=1.0; sys_platform == "darwin"
+rapidocr-onnxruntime>=1.3
+
+# Apple Silicon: torch with MPS backend is pulled in transitively by
+# docling/docling-ibm-models. No need to pin here.

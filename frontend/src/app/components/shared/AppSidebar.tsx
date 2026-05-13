@@ -11,7 +11,6 @@ import {
     ChevronsUpDown,
     ChevronDown,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/contexts/UserProfileContext";
 import { useChatHistoryContext } from "@/app/contexts/ChatHistoryContext";
@@ -20,6 +19,13 @@ import Link from "next/link";
 import { MikeIcon } from "@/components/chat/mike-icon";
 import { SidebarChatItem } from "@/app/components/shared/SidebarChatItem";
 import { listProjects } from "@/app/lib/mikeApi";
+
+const NAV_ITEMS = [
+    { href: "/assistant", label: "Assistant", icon: MessageSquare },
+    { href: "/projects", label: "Matters", icon: FolderOpen },
+    { href: "/tabular-reviews", label: "Tabular Review", icon: Table2 },
+    { href: "/workflows", label: "Workflows", icon: Library },
+];
 
 interface AppSidebarProps {
     isOpen: boolean;
@@ -32,15 +38,6 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
     const { chats, currentChatId, setCurrentChatId } = useChatHistoryContext();
     const router = useRouter();
     const pathname = usePathname();
-    const tSidebar = useTranslations("Sidebar");
-    const tCommon = useTranslations("Common");
-
-    const navItems = [
-        { href: "/assistant", label: tSidebar("assistant"), icon: MessageSquare },
-        { href: "/projects", label: tSidebar("projects"), icon: FolderOpen },
-        { href: "/tabular-reviews", label: tSidebar("tabularReviews"), icon: Table2 },
-        { href: "/workflows", label: tSidebar("workflows"), icon: Library },
-    ];
     const [shouldAnimate, setShouldAnimate] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [historyCollapsed, setHistoryCollapsed] = useState(false);
@@ -92,16 +89,15 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
         }
     }, [pathname, setCurrentChatId]);
 
-    const getUserInitials = (identifier?: string) => {
+    const getUserInitials = (email: string) => {
         if (profile?.displayName)
             return profile.displayName.charAt(0).toUpperCase();
-        const str = identifier ?? user?.username ?? user?.email ?? "?";
-        return str.charAt(0).toUpperCase();
+        return email.charAt(0).toUpperCase();
     };
 
     const getDisplayName = () => {
-        if (profile?.displayName) return profile.displayName;
-        return user?.username ?? user?.email?.split("@")[0] ?? "";
+        if (!profile) return "";
+        return profile.displayName || user?.email?.split("@")[0] || "";
     };
 
     const getUserTier = () => {
@@ -137,7 +133,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                     shouldAnimate ? "sidebar-fade-in" : ""
                                 }`}
                             >
-                                MikeRust
+                                Mike
                             </span>
                         </Link>
                     </div>
@@ -145,14 +141,14 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                 <button
                     onClick={onToggle}
                     className="h-9 w-9 p-2.5 items-center flex hover:bg-gray-100 rounded-md transition-colors"
-                    title={isOpen ? tCommon("close") : tCommon("open")}
+                    title={isOpen ? "Close sidebar" : "Open sidebar"}
                 >
                     <PanelLeft className="h-4 w-4" />
                 </button>
             </div>
 
             {/* Nav items */}
-            {navItems.map(({ href, label, icon: Icon }) => {
+            {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
                 const isActive =
                     pathname === href || pathname.startsWith(href + "/");
                 return (
@@ -194,7 +190,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                             shouldAnimate ? "sidebar-fade-in" : ""
                         }`}
                     >
-                        <span>{tSidebar("recentChats")}</span>
+                        <span>Assistant History</span>
                         <ChevronDown
                             className={`h-3.5 w-3.5 transition-transform ${historyCollapsed ? "-rotate-90" : ""}`}
                         />
@@ -222,7 +218,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                     shouldAnimate ? "sidebar-fade-in-2" : ""
                                 }`}
                             >
-                                {tSidebar("noChats")}
+                                No chats yet
                             </div>
                         ) : (
                             <div
@@ -269,10 +265,10 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                     ? "bg-gray-100"
                                     : "hover:bg-gray-100"
                             }`}
-                            title={!isOpen ? (user.username ?? user.email) : undefined}
+                            title={!isOpen ? user.email : undefined}
                         >
                             <div className="h-7 w-7 flex-shrink-0 rounded-full bg-gray-700 flex items-center justify-center text-white text-sm font-medium font-serif">
-                                {getUserInitials()}
+                                {getUserInitials(user.email)}
                             </div>
                             {isOpen && (
                                 <div
@@ -303,7 +299,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                                     className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2 rounded-md"
                                 >
                                     <User className="h-4 w-4" />
-                                    {tSidebar("account")}
+                                    Account Settings
                                 </button>
                             </div>
                         )}

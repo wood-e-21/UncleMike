@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
 import { createPortal } from "react-dom";
 import { X, Upload, Search, Loader2 } from "lucide-react";
 import {
@@ -15,7 +14,6 @@ import { FileDirectory } from "./FileDirectory";
 import { useDirectoryData, invalidateDirectoryCache } from "./useDirectoryData";
 import { OwnerOnlyModal } from "./OwnerOnlyModal";
 import { useAuth } from "@/contexts/AuthContext";
-import { DocumentSupportNotice } from "./DocumentSupportNotice";
 
 export { invalidateDirectoryCache };
 
@@ -36,7 +34,6 @@ export function AddDocumentsModal({
     allowMultiple = true,
     projectId,
 }: Props) {
-    const tCommon = useTranslations("Common");
     const { loading, standaloneDocuments, projects } = useDirectoryData(open);
     const { user } = useAuth();
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -227,7 +224,7 @@ export function AddDocumentsModal({
                         <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
                         <input
                             type="text"
-                            placeholder={tCommon("search")}
+                            placeholder="Search…"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             className="flex-1 bg-transparent text-sm text-gray-700 placeholder:text-gray-400 outline-none"
@@ -244,12 +241,8 @@ export function AddDocumentsModal({
                     </div>
                 </div>
 
-                <div className="px-4 pt-2">
-                    <DocumentSupportNotice />
-                </div>
-
                 {/* File browser */}
-                <div className="flex-1 overflow-y-auto px-4 pb-2 pt-2">
+                <div className="flex-1 overflow-y-auto px-4 pb-2">
                     <FileDirectory
                         standaloneDocs={filteredStandalone}
                         directoryProjects={filteredProjects}
@@ -271,7 +264,7 @@ export function AddDocumentsModal({
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept=".pdf,.docx,.doc,.rtf,.xlsx,.xls,.xlsb,.ods,.csv,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff"
+                            accept=".pdf,.docx,.doc"
                             multiple
                             className="hidden"
                             onChange={handleUpload}

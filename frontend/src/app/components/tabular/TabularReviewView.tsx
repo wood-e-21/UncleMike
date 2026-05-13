@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Loader2, Play, ChevronDown, MessageSquare, Download, Users } from "lucide-react";
 import { HeaderSearchBtn } from "../shared/HeaderSearchBtn";
@@ -49,10 +48,6 @@ interface Props {
 }
 
 export function TRView({ reviewId, projectId }: Props) {
-    const tTR = useTranslations("TabularReviews");
-    const tProj = useTranslations("Projects");
-    const tCommon = useTranslations("Common");
-    const tT = useTranslations("Tabular");
     const { setSidebarOpen } = useSidebar();
     const [review, setReview] = useState<TabularReview | null>(null);
     const [project, setProject] = useState<MikeProject | null>(null);
@@ -483,7 +478,7 @@ export function TRView({ reviewId, projectId }: Props) {
                                     onClick={() => router.push("/projects")}
                                     className="text-gray-500 hover:text-gray-700 transition-colors"
                                 >
-                                    {tProj("title")}
+                                    Projects
                                 </button>
                                 <span className="text-gray-300">›</span>
                                 <button
@@ -514,7 +509,7 @@ export function TRView({ reviewId, projectId }: Props) {
                                     }
                                     className="text-gray-500 hover:text-gray-700 transition-colors"
                                 >
-                                    {tTR("title")}
+                                    Tabular Reviews
                                 </button>
                             </>
                         )}
@@ -523,7 +518,7 @@ export function TRView({ reviewId, projectId }: Props) {
                                 onClick={() => router.push("/tabular-reviews")}
                                 className="text-gray-500 hover:text-gray-700 transition-colors"
                             >
-                                {tTR("title")}
+                                Tabular Reviews
                             </button>
                         )}
                         <span className="text-gray-300">›</span>
@@ -531,14 +526,14 @@ export function TRView({ reviewId, projectId }: Props) {
                             <div className="h-6 w-40 rounded bg-gray-100 animate-pulse" />
                         ) : (
                             <RenameableTitle
-                                value={review?.title || tTR("untitledReview")}
+                                value={review?.title || "Untitled Review"}
                                 onCommit={handleTitleCommit}
                             />
                         )}
                     </div>
                     {!loading && (
                         <div className="flex items-center gap-2">
-                            <HeaderSearchBtn value={search} onChange={setSearch} placeholder={tTR("searchDocsPlaceholder")} />
+                            <HeaderSearchBtn value={search} onChange={setSearch} placeholder="Search documents…" />
                             {!projectId && (
                                 <button
                                     onClick={() => setPeopleModalOpen(true)}
@@ -548,8 +543,8 @@ export function TRView({ reviewId, projectId }: Props) {
                                             ? "text-gray-300 cursor-default"
                                             : "text-gray-500 hover:text-gray-900 cursor-pointer"
                                     }`}
-                                    title={tTR("peopleWithAccess")}
-                                    aria-label={tTR("peopleWithAccess")}
+                                    title="People with access"
+                                    aria-label="People with access"
                                 >
                                     <Users className="h-4 w-4" />
                                 </button>
@@ -557,14 +552,14 @@ export function TRView({ reviewId, projectId }: Props) {
                             <button
                                 onClick={() =>
                                     exportTabularReviewToExcel({
-                                        reviewTitle: review?.title || tT("tabularReview"),
+                                        reviewTitle: review?.title || "Tabular Review",
                                         columns,
                                         documents,
                                         cells,
                                     })
                                 }
                                 disabled={columns.length === 0 || documents.length === 0}
-                                title={tTR("exportToExcel")}
+                                title="Export to Excel"
                                 className={`flex h-8 items-center justify-center gap-1.5 px-3 text-sm transition-colors ${
                                     columns.length === 0 || documents.length === 0
                                         ? "text-gray-300 cursor-default"
@@ -572,7 +567,7 @@ export function TRView({ reviewId, projectId }: Props) {
                                 }`}
                             >
                                 <Download className="h-4 w-4" />
-                                {tTR("export")}
+                                Export
                             </button>
                             <button
                                 onClick={handleGenerate}
@@ -596,7 +591,7 @@ export function TRView({ reviewId, projectId }: Props) {
                                 ) : (
                                     <Play className="h-4 w-4" />
                                 )}
-                                {generating ? tTR("running") : tTR("run")}
+                                {generating ? "Running…" : "Run"}
                             </button>
                         </div>
                     )}
@@ -618,7 +613,7 @@ export function TRView({ reviewId, projectId }: Props) {
                         }`}
                     >
                         <MessageSquare className="h-3.5 w-3.5" />
-                        {tTR("assistantInReview")}
+                        Assistant in Tabular Review
                     </button>
                     <div className="ml-auto flex items-center gap-4">
                         {selectedDocIds.length > 0 && (
@@ -627,7 +622,7 @@ export function TRView({ reviewId, projectId }: Props) {
                                     onClick={() => setActionsOpen((v) => !v)}
                                     className="flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors"
                                 >
-                                    {tTR("actions")}
+                                    Actions
                                     <ChevronDown className="h-3.5 w-3.5" />
                                 </button>
                                 {actionsOpen && (
@@ -636,13 +631,13 @@ export function TRView({ reviewId, projectId }: Props) {
                                             onClick={handleClearResults}
                                             className="w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 transition-colors"
                                         >
-                                            {tTR("clearResults")}
+                                            Clear results
                                         </button>
                                         <button
                                             onClick={handleDeleteDocuments}
                                             className="w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 transition-colors"
                                         >
-                                            {tCommon("delete")}
+                                            Delete
                                         </button>
                                     </div>
                                 )}
@@ -658,7 +653,7 @@ export function TRView({ reviewId, projectId }: Props) {
                             }`}
                         >
                             <Plus className="h-3.5 w-3.5" />
-                            {tTR("addDocuments")}
+                            Add Documents
                         </button>
                         <button
                             onClick={() => setAddColOpen(true)}
@@ -672,7 +667,7 @@ export function TRView({ reviewId, projectId }: Props) {
                             }`}
                         >
                             <Plus className="h-3.5 w-3.5" />
-                            {tTR("addColumns")}
+                            Add Columns
                         </button>
                     </div>
                 </div>
@@ -782,14 +777,14 @@ export function TRView({ reviewId, projectId }: Props) {
                         handleAddDocuments(docs)
                     }
                     breadcrumb={[
-                        tProj("title"),
+                        "Matters",
                         project.name +
                             (project.cm_number
                                 ? ` (#${project.cm_number})`
                                 : ""),
-                        tTR("title"),
-                        ...(review ? [review.title || tTR("untitledReview")] : []),
-                        tTR("breadcrumbAddDocuments"),
+                        "Tabular Reviews",
+                        ...(review ? [review.title || "Untitled Review"] : []),
+                        "Add Documents",
                     ]}
                     projectId={project.id}
                     excludeDocIds={new Set(documents.map((d) => d.id))}
@@ -802,9 +797,9 @@ export function TRView({ reviewId, projectId }: Props) {
                         handleAddDocuments(docs)
                     }
                     breadcrumb={[
-                        tTR("title"),
-                        ...(review ? [review.title || tTR("untitledReview")] : []),
-                        tTR("breadcrumbAddDocuments"),
+                        "Tabular Reviews",
+                        ...(review ? [review.title || "Untitled Review"] : []),
+                        "Add Documents",
                     ]}
                 />
             )}
@@ -816,9 +811,9 @@ export function TRView({ reviewId, projectId }: Props) {
                 fetchPeople={getTabularReviewPeople}
                 currentUserEmail={user?.email ?? null}
                 breadcrumb={[
-                    tTR("title"),
-                    review?.title || tTR("untitledReview"),
-                    tTR("peopleWithAccess"),
+                    "Tabular Reviews",
+                    review?.title || "Untitled Review",
+                    "People",
                 ]}
                 // Only the review owner may modify the member list. PeopleModal
                 // hides the add/remove controls when this prop is undefined.

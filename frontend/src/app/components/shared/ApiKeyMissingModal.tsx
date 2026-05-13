@@ -2,7 +2,6 @@
 
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
 import { AlertTriangle, X } from "lucide-react";
 import { providerLabel, type ModelProvider } from "@/app/lib/modelAvailability";
 
@@ -16,12 +15,12 @@ interface Props {
 
 export function ApiKeyMissingModal({ open, onClose, provider, message }: Props) {
     const router = useRouter();
-    const t = useTranslations("Modals.apiKeyMissing");
-    const tCommon = useTranslations("Common");
     if (!open) return null;
 
     const providerName = provider ? providerLabel(provider) : "this provider";
-    const body = message ?? t("body", { provider: providerName });
+    const body =
+        message ??
+        `You haven't added a ${providerName} API key yet. Add one in your account settings to use this model.`;
 
     const handleGoToAccount = () => {
         onClose();
@@ -41,7 +40,7 @@ export function ApiKeyMissingModal({ open, onClose, provider, message }: Props) 
                     <div className="flex items-center gap-2">
                         <AlertTriangle className="h-4 w-4 text-amber-600" />
                         <h2 className="text-base font-medium text-gray-900">
-                            {t("title")}
+                            API key required
                         </h2>
                     </div>
                     <button
@@ -63,13 +62,13 @@ export function ApiKeyMissingModal({ open, onClose, provider, message }: Props) 
                         onClick={onClose}
                         className="rounded-lg px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
                     >
-                        {tCommon("cancel")}
+                        Cancel
                     </button>
                     <button
                         onClick={handleGoToAccount}
                         className="rounded-lg bg-gray-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-700"
                     >
-                        {t("goToAccount")}
+                        Go to account settings
                     </button>
                 </div>
             </div>

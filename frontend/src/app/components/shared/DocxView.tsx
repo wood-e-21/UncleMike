@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import { MikeIcon } from "@/components/chat/mike-icon";
 import { useFetchDocxBytes } from "@/app/hooks/useFetchDocxBytes";
+import { supabase } from "@/lib/supabase";
+import { getApiBase } from "@/app/lib/mikeApi";
 import {
     clearDocxQuoteHighlights,
     highlightDocxQuote,
@@ -12,14 +14,6 @@ import type { CitationQuote } from "./types";
 interface Props {
     documentId: string;
     versionId?: string | null;
-    /**
-     * Alternative source: when set, the DOCX bytes are fetched from
-     * `/sync/kb-doc?path=<kbPath>` instead of the upload-flow endpoint.
-     * Used for citations pointing at RAG-indexed documents on disk.
-     * `documentId` is still required as a stable React key but is
-     * ignored by the fetcher when `kbPath` is non-empty.
-     */
-    kbPath?: string | null;
     /**
      * Called once the document has been rendered to the DOM. Handy for
      * scrolling to a particular tracked change after a re-render.
@@ -151,12 +145,11 @@ async function tagWIdsOnRenderedDom(
     versionId: string | null | undefined,
 ): Promise<void> {
     try {
-        const token =
-            typeof window !== "undefined"
-                ? localStorage.getItem("mike_auth_token")
-                : null;
-        const apiBase =
-            process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+        const {
+            data: { session },
+        } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        const apiBase = await getApiBase();
         const qs = versionId
             ? `?version_id=${encodeURIComponent(versionId)}`
             : "";
@@ -204,7 +197,6 @@ async function tagWIdsOnRenderedDom(
 export function DocxView({
     documentId,
     versionId,
-    kbPath,
     onReady,
     highlightEdit,
     refetchKey,
@@ -246,7 +238,6 @@ export function DocxView({
         documentId,
         versionId,
         refetchKey,
-        kbPath,
     );
 
     /**
