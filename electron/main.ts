@@ -30,6 +30,7 @@ import {
 } from "./backend";
 import { spawnFrontend, stopFrontend, waitForFrontend } from "./frontend";
 import { initLogging, getLogPath, closeLogging } from "./logging";
+import { loadSecretsToBackend } from "./secrets";
 
 const FRONTEND_URL = "http://localhost:3000";
 const LOCAL_USER_ID = "local-user";
@@ -276,6 +277,34 @@ ipcMain.handle("mike:unlock", async (_e, password: unknown) => {
       waitForBackend(20_000),
       waitForFrontend(20_000),
     ]);
+    if (backendReady && sessionJwt) {
+      // Load `<workspace>/.mike/secrets.enc` into the backend's
+      // in-memory bundle. Failure is non-fatal: the user can still use
+      // the app, they just won't have API keys configured. The UI
+      // shows a "Configure API keys" panel when /internal/secrets/status
+      // reports `populated: 0`.
+      try {
+        const result = await loadSecretsToBackend(
+          currentWorkspace,
+          backendUnlockSecret,
+          getBackendApiBase(),
+          sessionJwt,
+        );
+        if (result.cause === "ok") {
+          console.log(
+            `[secrets] loaded ${result.populated} key(s) into backend`,
+          );
+        } else if (result.cause === "absent") {
+          console.log("[secrets] no secrets.enc yet (first run)");
+        } else {
+          console.warn(
+            `[secrets] could not decrypt secrets.enc (cause=${result.cause}); continuing with empty bundle`,
+          );
+        }
+      } catch (err) {
+        console.warn("[secrets] load failed:", (err as Error).message);
+      }
+    }
     if (!backendReady) {
       // B5: surface backend startup failure instead of navigating into a
       // doomed app window.

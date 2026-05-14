@@ -56,6 +56,8 @@ async fn fresh_app() -> (axum::Router, Arc<AppState>) {
 
     // Hand-build an AppState that owns the same pool.
     let sessions = mike::auth::SessionStore::new(pool.clone());
+    let sidecars = mike::sidecars::supervisor::build_default(paths.root.clone())
+        .expect("build supervisor");
     let state = AppState {
         db: pool,
         paths,
@@ -67,6 +69,8 @@ async fn fresh_app() -> (axum::Router, Arc<AppState>) {
         embeddings: None,
         #[cfg(feature = "rag")]
         scans: Default::default(),
+        secrets: mike::secrets::new_shared(),
+        sidecars,
     };
     let state = Arc::new(state);
 

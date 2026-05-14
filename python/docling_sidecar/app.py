@@ -8,14 +8,26 @@ the runtime file so Mike's Node backend can discover it.
 
 Endpoints:
     GET  /health   → {ok, models_loaded, parser_version}
+    GET  /version  → {version, schema_version, capabilities}
     POST /parse    → DoclingDocument JSON + Markdown + tables + chunks
     POST /rechunk  → re-chunk a stored DoclingDocument JSON
 
-Configuration via env vars:
-    MIKE_DOCLING_RUNTIME    — path for {port,pid,parser_version} JSON
-    MIKE_DOCLING_CACHE_DIR  — Docling artifacts_path (model cache)
+Configuration via env vars. Universal envelope per docs/03-sidecars.md:
+    MIKE_SIDECAR_NAME       — "docling"
+    MIKE_SIDECAR_RUNTIME    — path for {port,pid,version,...} runtime JSON
+    MIKE_SIDECAR_CACHE_DIR  — model + artifact cache root
+    MIKE_SIDECAR_LOG        — sidecar log file path (Phase 2)
+    MIKE_SIDECAR_PARENT_PID — parent PID for the watchdog thread
+
+Sidecar-specific (still under the MIKE_DOCLING_ prefix because they
+configure Docling internals, not the supervisor protocol):
     MIKE_DOCLING_MAX_TOKENS — HybridChunker max_tokens (default 1024)
     MIKE_DOCLING_DEVICE     — 'mps' | 'cpu' | 'cuda' (default 'mps' on darwin)
+
+Legacy MIKE_DOCLING_RUNTIME / MIKE_DOCLING_CACHE_DIR / MIKE_DOCLING_PARENT_PID
+are still honored as a fallback during the Phase 1 → Phase 3 transition;
+when the Rust supervisor takes over spawning, only the MIKE_SIDECAR_*
+names will be set.
 """
 
 from __future__ import annotations
@@ -101,7 +113,9 @@ def _ensure_loaded() -> None:
         # an empty workspace cache. Redirecting HF_HOME / TRANSFORMERS_CACHE
         # gives us workspace-isolated model storage AND lets Docling do its
         # own download on first run.
-        cache_dir = os.environ.get("MIKE_DOCLING_CACHE_DIR")
+        cache_dir = os.environ.get("MIKE_SIDECAR_CACHE_DIR") or os.environ.get(
+            "MIKE_DOCLING_CACHE_DIR"
+        )
         if cache_dir:
             cache_path = Path(cache_dir).expanduser().resolve()
             cache_path.mkdir(parents=True, exist_ok=True)
@@ -256,6 +270,24 @@ class HealthResponse(BaseModel):
     parser_version: str | None
 
 
+class VersionResponse(BaseModel):
+    """Wire shape required by docs/03-sidecars.md. The supervisor in
+    `backend/src/sidecars/supervisor.rs` parses `version` for major-
+    version compatibility checks."""
+
+    version: str
+    schema_version: int
+    capabilities: list[str]
+
+
+# Bump the second component (minor) when adding capabilities; bump the
+# first (major) only on a breaking wire-format change in /parse or
+# /rechunk. The backend's expected_major_version() must match.
+SIDECAR_VERSION = "1.0.0"
+SIDECAR_SCHEMA_VERSION = 1
+SIDECAR_CAPABILITIES = ["parse", "rechunk"]
+
+
 # ----- FastAPI app ----------------------------------------------------------
 
 app = FastAPI(title="mike-docling-sidecar")
@@ -265,6 +297,18 @@ app = FastAPI(title="mike-docling-sidecar")
 def health() -> HealthResponse:
     return HealthResponse(
         ok=True, models_loaded=_models_loaded, parser_version=_parser_version
+    )
+
+
+@app.get("/version", response_model=VersionResponse)
+def version() -> VersionResponse:
+    """Required by docs/03-sidecars.md. The supervisor calls this on
+    every probe and refuses to use a sidecar whose major version
+    doesn't match the backend's expectation."""
+    return VersionResponse(
+        version=SIDECAR_VERSION,
+        schema_version=SIDECAR_SCHEMA_VERSION,
+        capabilities=SIDECAR_CAPABILITIES,
     )
 
 
@@ -471,12 +515,25 @@ def _bind_port() -> tuple[socket.socket, int]:
 
 
 def _write_runtime(runtime_path: str, port: int) -> None:
+    """Write the runtime file per docs/03-sidecars.md. Shape:
+        { port, pid, version, schema_version, capabilities, started_at }
+    `parser_version` is retained for backward compatibility with the
+    Phase-1 Electron supervisor; remove once Phase 3 takes over.
+    """
     p = Path(runtime_path)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(
         json.dumps(
-            {"port": port, "pid": os.getpid(), "parser_version": _parser_version}
+            {
+                "port": port,
+                "pid": os.getpid(),
+                "version": SIDECAR_VERSION,
+                "schema_version": SIDECAR_SCHEMA_VERSION,
+                "capabilities": SIDECAR_CAPABILITIES,
+                # Legacy:
+                "parser_version": _parser_version,
+            }
         )
     )
     tmp.replace(p)
@@ -502,12 +559,20 @@ def main() -> None:
         format="[docling-sidecar] %(asctime)s %(levelname)s %(message)s",
     )
 
-    runtime_path = os.environ.get("MIKE_DOCLING_RUNTIME")
+    # Prefer the universal MIKE_SIDECAR_RUNTIME (docs/03-sidecars.md);
+    # fall back to the legacy MIKE_DOCLING_RUNTIME during Phase 1.
+    runtime_path = os.environ.get("MIKE_SIDECAR_RUNTIME") or os.environ.get(
+        "MIKE_DOCLING_RUNTIME"
+    )
     if not runtime_path:
-        logger.error("MIKE_DOCLING_RUNTIME is not set; refusing to start.")
+        logger.error(
+            "MIKE_SIDECAR_RUNTIME (or legacy MIKE_DOCLING_RUNTIME) is not set; refusing to start."
+        )
         sys.exit(2)
 
-    parent_pid = os.environ.get("MIKE_DOCLING_PARENT_PID")
+    parent_pid = os.environ.get("MIKE_SIDECAR_PARENT_PID") or os.environ.get(
+        "MIKE_DOCLING_PARENT_PID"
+    )
     if parent_pid:
         try:
             _watch_parent(int(parent_pid))

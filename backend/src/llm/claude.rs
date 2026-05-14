@@ -8,11 +8,23 @@ use super::types::{Message, Role, StreamEvent, StreamParams};
 use crate::llm::BoxStream;
 
 fn api_key(params: &StreamParams) -> Result<String> {
-    if let Some(k) = params.claude_api_key.as_ref().filter(|s| !s.trim().is_empty()) {
-        return Ok(k.clone());
-    }
-    std::env::var("ANTHROPIC_API_KEY")
-        .map_err(|_| anyhow!("Anthropic API key not configured: set it in Account → Models, or set ANTHROPIC_API_KEY"))
+    // The route layer must populate `claude_api_key` from
+    // `AppState.secrets` (loaded by Electron from `secrets.enc` after
+    // backend startup). Env-var fallback is intentionally removed —
+    // anti-pattern #9 forbids env-passed secrets after startup, and
+    // having a fallback would let a stale `.env` mask a missing
+    // secrets-bundle load.
+    params
+        .claude_api_key
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.clone())
+        .ok_or_else(|| {
+            anyhow!(
+                "Anthropic API key not configured: open Account → Models in the UI and \
+                 enter your key, or set it via `secrets.enc`."
+            )
+        })
 }
 
 fn to_wire_messages(messages: &[Message]) -> Vec<Value> {

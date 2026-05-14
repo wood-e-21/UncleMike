@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod auth;
 pub mod db;
 pub mod embeddings;
@@ -6,6 +7,8 @@ pub mod mcp;
 pub mod mikeprj;
 pub mod pdf;
 pub mod routes;
+pub mod secrets;
+pub mod sidecars;
 pub mod storage;
 pub mod sync;
 pub mod workspace;
@@ -14,7 +17,7 @@ pub use db::AppState;
 
 use axum::{
     extract::Request,
-    http::{Method, StatusCode},
+    http::{HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
@@ -22,7 +25,10 @@ use axum::{
 };
 use serde_json::json;
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::request_id::{
+    MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer,
+};
 
 pub async fn run_server(port: u16) -> anyhow::Result<()> {
     run_server_inner(port).await
@@ -30,10 +36,22 @@ pub async fn run_server(port: u16) -> anyhow::Result<()> {
 
 /// Load `.env` from a known-good location regardless of cwd.
 ///
-/// Electron can spawn the bundled backend from a resources directory where
-/// there may be no `.env`. Plain `dotenvy::dotenv()` only checks cwd, so we
-/// walk up from both cwd and the executable directory until we find one.
+/// Only consulted when the backend is started standalone (not under
+/// Electron supervision). When `MIKE_BACKEND_UNLOCK_SECRET` is set,
+/// Electron is the parent and we treat env vars as authoritative —
+/// reading an unrelated `.env` at that point would be a #9
+/// anti-pattern violation (env-var-passed secrets after startup).
+/// Anything Electron wants to inject, it has already injected via
+/// `safeEnv()`; anything else is at best noise and at worst a footgun
+/// (a stale `.env` masking a missing secrets-bundle load).
 fn load_dotenv() {
+    if std::env::var("MIKE_BACKEND_UNLOCK_SECRET").is_ok() {
+        tracing::debug!(
+            "[env] backend running under Electron supervision; skipping .env walk"
+        );
+        return;
+    }
+
     fn try_walk_up(start: std::path::PathBuf) -> bool {
         let mut current: Option<std::path::PathBuf> = Some(start);
         while let Some(dir) = current {
@@ -119,13 +137,52 @@ async fn run_server_inner(port: u16) -> anyhow::Result<()> {
         );
     }
 
+    // Strict per-port CORS allowlist per docs/08-security-model.md
+    // Decision 6. The frontend lives at http://localhost:3000 (the
+    // packaged Next.js standalone server) and the Electron renderer
+    // also reaches us via that origin. When the Word add-in port
+    // (HTTPS:3002) lands in Phase 5 it gets its own router with its
+    // own CORS allowlist.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE, Method::OPTIONS])
-        .allow_headers(Any);
+        .allow_origin(AllowOrigin::list([
+            HeaderValue::from_static("http://localhost:3000"),
+            HeaderValue::from_static("http://127.0.0.1:3000"),
+        ]))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            axum::http::header::AUTHORIZATION,
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::ACCEPT,
+        ]);
+
+    // X-Request-Id propagation. If the caller (Electron / frontend
+    // / Word add-in) supplies an X-Request-Id, we keep it; otherwise
+    // we mint a fresh one. The same ID is reflected back on the
+    // response so the client can correlate logs, and is available
+    // via the request extensions for sidecar fan-out.
+    //
+    // Anti-pattern alignment: docs/05-edges.md says request IDs
+    // propagate to sidecar calls. The supervisor's typed client
+    // (Phase 3) will read this from the extensions when making
+    // /parse calls, so logs can be `grep`'d across processes.
+    let request_id = SetRequestIdLayer::x_request_id(MikeRequestId);
+    let propagate_request_id = PropagateRequestIdLayer::x_request_id();
+
+    // Snapshot the paths before `with_state` consumes `state` so the
+    // post-bind audit::log call below can still see the workspace.
+    let paths_for_audit = state.paths.clone();
 
     let app: Router<()> = Router::new()
         .route("/health", get(health))
+        .nest("/internal", routes::internal::router())
+        .nest("/system",   routes::system::router())
         .nest("/user",     routes::user::router())
         .nest("/chat",     routes::chat::router())
         .nest("/project",  routes::projects::router())
@@ -138,6 +195,8 @@ async fn run_server_inner(port: u16) -> anyhow::Result<()> {
         .nest("/workflow",  routes::workflows::router())
         .nest("/tabular-review", routes::tabular_reviews::router())
         .nest("/sync",     routes::sync::router())
+        .layer(propagate_request_id)
+        .layer(request_id)
         .layer(middleware::from_fn(validate_host))
         .layer(cors)
         .with_state(state);
@@ -146,6 +205,7 @@ async fn run_server_inner(port: u16) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let bound = listener.local_addr()?;
     write_backend_runtime(&bound)?;
+    audit::log(&paths_for_audit, audit::AuditEvent::WorkspaceOpened);
     println!("READY");
     tracing::info!("API listening on {bound}");
     axum::serve(listener, app).await?;
@@ -154,6 +214,23 @@ async fn run_server_inner(port: u16) -> anyhow::Result<()> {
 
 async fn health(_auth: auth::middleware::AuthUser) -> Json<serde_json::Value> {
     Json(json!({ "ok": true }))
+}
+
+/// Mints fresh X-Request-Id values when callers don't supply one.
+/// Uses a UUIDv4 because we don't (yet) depend on `ulid` in this
+/// crate; the request_id is opaque to consumers so the format is
+/// only a debugging convention. Swap to ULID if/when we want
+/// sortable IDs for the audit log.
+#[derive(Clone, Default)]
+struct MikeRequestId;
+
+impl MakeRequestId for MikeRequestId {
+    fn make_request_id<B>(&mut self, _req: &axum::http::Request<B>) -> Option<RequestId> {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        axum::http::HeaderValue::from_str(&id)
+            .ok()
+            .map(RequestId::new)
+    }
 }
 
 async fn validate_host(req: Request, next: Next) -> Result<Response, StatusCode> {

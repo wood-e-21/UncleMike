@@ -8,11 +8,20 @@ use super::types::{Message, Role, StreamEvent, StreamParams, ToolCall};
 use crate::llm::BoxStream;
 
 fn api_key(params: &StreamParams) -> Result<String> {
-    if let Some(k) = params.gemini_api_key.as_ref().filter(|s| !s.trim().is_empty()) {
-        return Ok(k.clone());
-    }
-    std::env::var("GEMINI_API_KEY")
-        .map_err(|_| anyhow!("Gemini API key not configured: set it in Account → Models, or set GEMINI_API_KEY"))
+    // Env-var fallback removed; see backend/src/llm/claude.rs for the
+    // rationale (anti-pattern #9, secrets must come from the
+    // in-memory bundle loaded via `/internal/secrets/load`).
+    params
+        .gemini_api_key
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.clone())
+        .ok_or_else(|| {
+            anyhow!(
+                "Gemini API key not configured: open Account → Models in the UI and \
+                 enter your key, or set it via `secrets.enc`."
+            )
+        })
 }
 
 /// Resolve the Gemini endpoint URL.

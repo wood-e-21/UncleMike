@@ -1,4 +1,5 @@
 use anyhow::Result;
+use sqlx::ConnectOptions;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -6,7 +7,16 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
-use crate::{auth::SessionStore, workspace::WorkspacePaths};
+use crate::{
+    auth::SessionStore,
+    secrets::SharedSecrets,
+    sidecars::supervisor::Supervisor,
+    workspace::WorkspacePaths,
+};
+
+pub mod cipher;
+pub mod models;
+pub mod repositories;
 
 #[cfg(feature = "rag")]
 use crate::embeddings::EmbeddingService;
@@ -100,6 +110,22 @@ pub struct AppState {
     /// the status endpoint. Cleared when the user removes the folder.
     #[cfg(feature = "rag")]
     pub scans: Arc<RwLock<HashMap<String, ScanProgressHandle>>>,
+
+    /// In-process secrets bundle (API keys for upstream LLMs, etc.).
+    /// Empty until Electron POSTs to `/internal/secrets/load` after the
+    /// backend's `READY` token. Never written to disk by the backend;
+    /// the on-disk copy lives in `<workspace>/.mike/secrets.enc` and is
+    /// owned by Electron. See `backend/src/secrets/mod.rs` for the
+    /// access pattern and `docs/decisions.md` for the architectural
+    /// decision.
+    pub secrets: SharedSecrets,
+
+    /// Sidecar supervisor — the Rust-side membrane in front of Python
+    /// sidecars (Docling today; eyecite, presidio later). At Phase 1
+    /// the supervisor is read-only (it probes Electron-spawned
+    /// processes); at Phase 3 it will own spawn + restart-with-backoff.
+    /// See `backend/src/sidecars/`.
+    pub sidecars: Arc<Supervisor>,
 }
 
 impl AppState {
@@ -138,14 +164,54 @@ impl AppState {
         }
         tracing::info!("[db] using workspace db={}", paths.db_path.display());
 
+        // SQLCipher key. Derived from MIKE_BACKEND_UNLOCK_SECRET (set by
+        // Electron at spawn time). PRAGMA must run BEFORE any other
+        // statement on a connection, so we install it as a pragma in
+        // the connect options. sqlx pipes pragmas via the connect
+        // options' `pragma(name, value)` API; that runs as part of
+        // connection setup, before our statements see the DB.
+        let cipher_key = cipher::database_key_hex()?;
         let opts = SqliteConnectOptions::from_str(&db_url)?
             .create_if_missing(true)
-            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+            .pragma("key", format!("\"x'{cipher_key}'\""))
+            .pragma("cipher_compatibility", "4")
+            .pragma("cipher_memory_security", "ON")
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            // Suppress the long-statement warning for `PRAGMA key` —
+            // we know it's slow on first connection (SQLCipher's PBKDF
+            // for the legacy raw-string form would matter; raw hex is
+            // fast, but log noise on cold start isn't useful).
+            .log_slow_statements(tracing::log::LevelFilter::Trace, std::time::Duration::from_secs(1));
 
         let db = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(opts)
-            .await?;
+            .await
+            .map_err(|e| {
+                if let Some(hint) = cipher::explain_open_failure(&e) {
+                    anyhow::anyhow!("{e} — {hint}")
+                } else {
+                    anyhow::anyhow!(e)
+                }
+            })?;
+
+        // Confirm SQLCipher is actually live. Without this assertion
+        // the binary will happily run against a plain sqlite if the
+        // libsqlite3-sys feature flags ever drift. A "data" file on
+        // disk is alpha criterion #9; we make it visible at boot too.
+        match sqlx::query_scalar::<_, String>("PRAGMA cipher_version")
+            .fetch_optional(&db)
+            .await
+        {
+            Ok(Some(v)) => tracing::info!("[db] sqlcipher active, version={v}"),
+            Ok(None) | Err(_) => {
+                anyhow::bail!(
+                    "SQLCipher is not active. The binary is linked against plain SQLite. \
+                     Check `libsqlite3-sys` features in backend/Cargo.toml — \
+                     `bundled-sqlcipher-vendored-openssl` is required."
+                );
+            }
+        }
 
         let sessions = SessionStore::new(db.clone());
 
@@ -156,6 +222,8 @@ impl AppState {
         #[cfg(feature = "rag")]
         let embeddings: Option<Arc<EmbeddingService>> =
             Some(Arc::new(EmbeddingService::new(db.clone())));
+
+        let sidecars = crate::sidecars::supervisor::build_default(paths.root.clone())?;
 
         Ok(Self {
             db,
@@ -168,6 +236,8 @@ impl AppState {
             embeddings,
             #[cfg(feature = "rag")]
             scans: Arc::new(RwLock::new(HashMap::new())),
+            secrets: crate::secrets::new_shared(),
+            sidecars,
         })
     }
 

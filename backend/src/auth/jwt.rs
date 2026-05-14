@@ -1,10 +1,19 @@
+//! JWT minting/verification. Electron is the **issuer** in Phase 1 —
+//! it mints tokens with a 24h TTL right after PIN unlock. The backend
+//! is the **verifier** here. The `sign_token` helper exists only for
+//! tests; production paths never use it.
+
 use anyhow::{anyhow, Result};
 use hmac::{Hmac, Mac};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
-const EXPIRY_SECS: u64 = 60 * 60 * 24 * 30; // 30 days
+/// Test-only TTL. Production tokens are minted by Electron with a
+/// 24-hour TTL (electron/main.ts: JWT_TTL_SECONDS). This constant
+/// only matters when a test calls `sign_token` directly — long
+/// enough that test runs never expire under it.
+const TEST_TOKEN_EXPIRY_SECS: u64 = 60 * 60 * 24 * 30;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
@@ -40,6 +49,10 @@ pub fn ensure_configured() -> Result<()> {
     secret_bytes().map(|_| ())
 }
 
+/// **Test-only.** Production tokens are minted by Electron's
+/// `signLocalJwt` (electron/jwt.ts) with a 24h TTL. The backend
+/// only verifies. Any production code path that wants to call this
+/// is doing the wrong thing.
 pub fn sign_token(user_id: &str, email: &str) -> Result<String> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
@@ -48,7 +61,7 @@ pub fn sign_token(user_id: &str, email: &str) -> Result<String> {
         sub: user_id.to_string(),
         email: email.to_string(),
         iat: now,
-        exp: now + EXPIRY_SECS,
+        exp: now + TEST_TOKEN_EXPIRY_SECS,
     };
     let secret = secret_bytes()?;
     let key = EncodingKey::from_secret(&secret);

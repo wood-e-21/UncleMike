@@ -4,6 +4,7 @@ import * as path from "path";
 import { appResources } from "./paths";
 import { backendRuntimeFilePath } from "./workspace";
 import { setLogRedactions } from "./logging";
+import { safeChildEnv } from "./safeEnv";
 
 interface SpawnOptions {
   workspace: string;
@@ -44,11 +45,7 @@ function backendBinary(): { cmd: string; args: string[]; cwd: string; envExtra?:
 }
 
 function safeEnv(opts: SpawnOptions): NodeJS.ProcessEnv {
-  const keep = ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "RUST_LOG"];
-  const env: NodeJS.ProcessEnv = {};
-  for (const key of keep) {
-    if (process.env[key]) env[key] = process.env[key];
-  }
+  const env = safeChildEnv();
   env.WORKSPACE_PATH = opts.workspace;
   env.MIKE_BACKEND_PORT = "AUTO";
   env.MIKE_BACKEND_UNLOCK_SECRET = opts.backendUnlockSecret;

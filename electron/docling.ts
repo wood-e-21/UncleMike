@@ -1,20 +1,32 @@
 /**
- * Docling sidecar lifecycle.
+ * Docling sidecar lifecycle — Phase 1 spawn shim.
  *
- * Mirrors electron/backend.ts: spawn a Python FastAPI/Uvicorn server next
- * to the Express backend, wait for it to write its runtime file, then
- * healthcheck. The Express backend reads
- *    <workspace>/.mike/docling-runtime.json
- * to discover the sidecar URL — no IPC plumbing required.
+ * What this module does TODAY:
+ *   - Locates a Python ≥3.11 with `docling` importable
+ *   - Spawns `python <sidecar_app>`
+ *   - Waits for the sidecar to write its runtime file at
+ *     `<workspace>/.mike/runtime/sidecars/docling.json`
+ *   - Health-checks /health on the OS-assigned port
+ *   - On Electron shutdown, sends SIGTERM (then the OS reaps SIGKILL)
  *
- * Phase 1 packaging: requires the user's Python (≥3.11) to have docling
- * installed (see python/docling_sidecar/requirements.txt). If Python or
- * the docling import is missing, the sidecar fails to come up and the
- * Express backend silently falls back to the legacy pdfjs-dist / mammoth
- * extractors. Phase 2 will replace this with a PyInstaller-bundled binary
- * declared in package.json > build.extraResources.
+ * What this module is NOT:
+ *   - It is NOT the Rust supervisor. The Rust side
+ *     (`backend/src/sidecars/supervisor.rs`) reads the same runtime
+ *     file and is the one routes consult to decide whether a request
+ *     can be served. This module's job is just the spawn-and-watch
+ *     plumbing that Phase 3 will replace with `tokio::process::Command`.
  *
- * Gated by env: only spawned when MIKE_DOCLING_ENABLED=1.
+ * Behavior on "Docling unavailable":
+ *   - If MIKE_DOCLING_ENABLED=0 (explicit opt-out), we don't spawn;
+ *     the supervisor reports `down`; the backend returns 503 with
+ *     `X-Sidecar-Required: docling@1` to any route that needs it.
+ *     There is NO silent fallback to legacy extractors — per
+ *     anti-pattern #7. The frontend surfaces the banner.
+ *   - If Python isn't found, same thing: we don't spawn, supervisor
+ *     reports down, requests requiring Docling return 503.
+ *
+ * Default-on: Docling is enabled by default. To opt out for
+ * development, set MIKE_DOCLING_ENABLED=0 explicitly.
  */
 
 import { ChildProcess, spawn, spawnSync } from "child_process";
@@ -22,6 +34,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { appResources } from "./paths";
+import { safeSidecarEnv } from "./safeEnv";
 
 interface SpawnOptions {
   workspace: string;
@@ -37,8 +50,14 @@ let doclingPort: number | null = null;
 let doclingWorkspace: string | null = null;
 let lastExitInfo: ExitInfo | null = null;
 
+/**
+ * Phase C4: default-on. Set MIKE_DOCLING_ENABLED=0 to opt out
+ * explicitly (handy for dev iteration when you don't want a 30s
+ * Docling-load delay on every restart). Any other value — unset,
+ * empty, "1" — enables the sidecar.
+ */
 export function isDoclingEnabled(): boolean {
-  return process.env.MIKE_DOCLING_ENABLED === "1";
+  return process.env.MIKE_DOCLING_ENABLED !== "0";
 }
 
 export function isDoclingRunning(): boolean {
@@ -47,12 +66,20 @@ export function isDoclingRunning(): boolean {
   );
 }
 
+/**
+ * Per docs/01-workspace-layout.md, sidecar runtime files live under
+ * `<workspace>/.mike/runtime/sidecars/<name>.json`. The legacy
+ * `<workspace>/.mike/docling-runtime.json` path is no longer used.
+ * If a Phase-1 workspace still has the old file, the supervisor
+ * silently ignores it (it looks at the new path).
+ */
 export function doclingRuntimePath(workspace: string): string {
-  return path.join(workspace, ".mike", "docling-runtime.json");
+  return path.join(workspace, ".mike", "runtime", "sidecars", "docling.json");
 }
 
 export function doclingModelCacheDir(workspace: string): string {
-  return path.join(workspace, ".mike", "docling-cache");
+  // Stay inside .mike/sidecar-cache/<name> per docs/01-workspace-layout.md.
+  return path.join(workspace, ".mike", "sidecar-cache", "docling");
 }
 
 /**
@@ -114,27 +141,9 @@ function sidecarAppPath(): string {
   return path.join(appResources(), "python", "docling_sidecar", "app.py");
 }
 
-function safeSpawnEnv(): NodeJS.ProcessEnv {
-  // Mirror backend/src/lib/safeSpawn.ts: never leak the parent's secrets to
-  // the child. Pass only the basics needed to find Python's site-packages
-  // and write to a temp dir.
-  const env: NodeJS.ProcessEnv = {};
-  for (const k of [
-    "PATH",
-    "TEMP",
-    "TMP",
-    "TMPDIR",
-    "HOME",
-    "LANG",
-    "LC_ALL",
-    "PYTHONPATH",
-    "VIRTUAL_ENV",
-  ]) {
-    const v = process.env[k];
-    if (v !== undefined) env[k] = v;
-  }
-  return env;
-}
+// safeSpawnEnv kept as an alias for the shared helper so the spawn
+// site below reads naturally. Allowlist lives in electron/safeEnv.ts.
+const safeSpawnEnv = safeSidecarEnv;
 
 export function spawnDocling(opts: SpawnOptions): boolean {
   if (!isDoclingEnabled()) {
@@ -174,8 +183,18 @@ export function spawnDocling(opts: SpawnOptions): boolean {
   doclingPort = null;
   doclingWorkspace = opts.workspace;
 
+  // Universal envelope (docs/03-sidecars.md §"Spawn-time env vars")
+  // plus Docling-specific runtime tuning. We pass BOTH the universal
+  // names and the legacy MIKE_DOCLING_* names for the Phase 1 →
+  // Phase 3 transition. The Phase 3 Rust supervisor will set only
+  // MIKE_SIDECAR_*.
   const env: NodeJS.ProcessEnv = {
     ...safeSpawnEnv(),
+    MIKE_SIDECAR_NAME: "docling",
+    MIKE_SIDECAR_RUNTIME: doclingRuntimePath(opts.workspace),
+    MIKE_SIDECAR_CACHE_DIR: doclingModelCacheDir(opts.workspace),
+    MIKE_SIDECAR_PARENT_PID: String(process.pid),
+    // Legacy aliases — drop in Phase 3.
     MIKE_DOCLING_RUNTIME: doclingRuntimePath(opts.workspace),
     MIKE_DOCLING_CACHE_DIR: doclingModelCacheDir(opts.workspace),
     MIKE_DOCLING_PARENT_PID: String(process.pid),

@@ -39,6 +39,12 @@ CREATE TABLE IF NOT EXISTS matters (
     UNIQUE(user_id, client_id, slug)
 );
 
+-- TODO(phase-cleanup): the corpus_* + fetched_with_fallback columns are
+-- vestigial from MikeRust's EUR-Lex / Italian-legal corpora. The Phase 1
+-- reshape stripped the corpus *features* but left these columns because
+-- routes/chat.rs and routes/sync.rs still reference them. They should be
+-- dropped once those routes are cleaned up — currently tracked as a
+-- separate cleanup PR.
 CREATE TABLE IF NOT EXISTS documents (
     id                   TEXT PRIMARY KEY,
     user_id              TEXT NOT NULL,
@@ -53,10 +59,10 @@ CREATE TABLE IF NOT EXISTS documents (
     item_path            TEXT,
     content_hash         TEXT,
     extracted_text_path  TEXT,
-    corpus_id            TEXT,
-    corpus_identifier    TEXT,
-    corpus_language      TEXT,
-    fetched_with_fallback INTEGER NOT NULL DEFAULT 0,
+    corpus_id            TEXT,    -- TODO drop with corpus cleanup
+    corpus_identifier    TEXT,    -- TODO drop with corpus cleanup
+    corpus_language      TEXT,    -- TODO drop with corpus cleanup
+    fetched_with_fallback INTEGER NOT NULL DEFAULT 0,  -- TODO drop with corpus cleanup
     chat_id              TEXT,
     status               TEXT NOT NULL DEFAULT 'ready',
     created_at           TEXT NOT NULL DEFAULT (datetime('now'))

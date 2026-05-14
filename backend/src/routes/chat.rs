@@ -1866,8 +1866,23 @@ async fn stream_chat_root(
         );
     }
 
-    let claude_key = user_settings.as_ref().and_then(|s| s.claude_api_key.clone());
-    let gemini_key = user_settings.as_ref().and_then(|s| s.gemini_api_key.clone());
+    // Precedence for API keys: in-memory secrets bundle (loaded from
+    // <workspace>/.mike/secrets.enc by Electron after backend READY)
+    // wins. Fall back to user_settings.* for now — those rows live in
+    // the SQLCipher-encrypted DB so they're not plaintext-leakable, but
+    // the long-term plan (see docs/decisions.md, "Secrets keystore")
+    // is to drop the legacy DB columns once the UI writes through
+    // /internal/secrets/save instead of /user/settings.
+    let claude_key = crate::secrets::anthropic_key(
+        &state.secrets,
+        user_settings.as_ref().and_then(|s| s.claude_api_key.as_deref()),
+    )
+    .await;
+    let gemini_key = crate::secrets::gemini_key(
+        &state.secrets,
+        user_settings.as_ref().and_then(|s| s.gemini_api_key.as_deref()),
+    )
+    .await;
     let gemini_region = user_settings.as_ref().and_then(|s| s.gemini_region.clone());
 
     // Compress older turns when the running history starts to crowd the
@@ -2997,6 +3012,8 @@ async fn post_message(
 
     let system_prompt = body.system_prompt.unwrap_or_default();
 
+    // See `secrets::anthropic_key` for the bundle-wins-then-legacy
+    // precedence rationale.
     let params = StreamParams {
         model: model.clone(),
         system_prompt,
@@ -3005,8 +3022,16 @@ async fn post_message(
         max_iterations: 1,
         enable_thinking: false,
         local_config,
-        claude_api_key: user_settings.as_ref().and_then(|s| s.claude_api_key.clone()),
-        gemini_api_key: user_settings.as_ref().and_then(|s| s.gemini_api_key.clone()),
+        claude_api_key: crate::secrets::anthropic_key(
+            &state.secrets,
+            user_settings.as_ref().and_then(|s| s.claude_api_key.as_deref()),
+        )
+        .await,
+        gemini_api_key: crate::secrets::gemini_key(
+            &state.secrets,
+            user_settings.as_ref().and_then(|s| s.gemini_api_key.as_deref()),
+        )
+        .await,
         gemini_region: user_settings.as_ref().and_then(|s| s.gemini_region.clone()),
     };
 
@@ -3236,8 +3261,16 @@ async fn generate_title(
         max_iterations: 1,
         enable_thinking: false,
         local_config,
-        claude_api_key: user_settings.as_ref().and_then(|s| s.claude_api_key.clone()),
-        gemini_api_key: user_settings.as_ref().and_then(|s| s.gemini_api_key.clone()),
+        claude_api_key: crate::secrets::anthropic_key(
+            &state.secrets,
+            user_settings.as_ref().and_then(|s| s.claude_api_key.as_deref()),
+        )
+        .await,
+        gemini_api_key: crate::secrets::gemini_key(
+            &state.secrets,
+            user_settings.as_ref().and_then(|s| s.gemini_api_key.as_deref()),
+        )
+        .await,
         gemini_region: user_settings.as_ref().and_then(|s| s.gemini_region.clone()),
     };
 

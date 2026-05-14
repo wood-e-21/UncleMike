@@ -19,7 +19,7 @@ path = "src/lib.rs"
 axum = { version = "0.8", features = ["multipart", "macros"] }
 axum-extra = { version = "0.10", features = ["typed-header"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "request-id", "util"] }
 tokio = { version = "1", features = ["full"] }
 
 # ------------------------------------------------------------------
@@ -63,10 +63,18 @@ ort = { version = "=2.0.0-rc.12", optional = true, default-features = false }
 # no extra daemon, no protoc. Brute-force cosine in C with SIMD;
 # fast up to ~500k vectors which is well above any single-firm needs.
 sqlite-vec = { version = "0.1", optional = true }
-# Needed only to call `sqlite3_auto_extension` so sqlx's pool picks
-# up the vec0 extension on every new connection. The version is kept
-# in sync with sqlx's own libsqlite3-sys via cargo's dedup.
-libsqlite3-sys = { version = "0.30", optional = true, features = ["bundled"] }
+# SQLCipher via the bundled openssl-vendored build. This is the same
+# crate sqlx-sqlite uses transitively; cargo's feature unification
+# means our `bundled-sqlcipher-vendored-openssl` feature applies to
+# every consumer in the workspace, so sqlx's pool, our auto-extension
+# registration, and any future direct rusqlite use all share one
+# SQLCipher-linked sqlite3. (Decision logged in docs/decisions.md.)
+#
+# This is intentionally NOT gated behind the `rag` feature: the
+# database is always encrypted regardless of whether RAG is built in.
+# The `register_sqlite_vec_auto_extension` call is rag-only and uses
+# the same crate.
+libsqlite3-sys = { version = "0.30", features = ["bundled-sqlcipher-vendored-openssl"] }
 # Pack/unpack f32 vectors as little-endian bytes for the embedding BLOB.
 zerocopy = { version = "0.7", optional = true, features = ["derive"] }
 # Folder scan: depth-first traversal of the user-configured directory
@@ -151,7 +159,6 @@ rag = [
     "dep:fastembed",
     "dep:ort",
     "dep:sqlite-vec",
-    "dep:libsqlite3-sys",
     "dep:zerocopy",
     "dep:walkdir",
     "dep:ignore",

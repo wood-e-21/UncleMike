@@ -31,3 +31,6 @@ jobs:
             docs/0*.md
             README.md
         continue-on-error: true   # warn-only until we stabilize the style
+
+      - name: Lint — db isolation (anti-pattern #4)
+        run: ./scripts/lint-db-isolation.sh
