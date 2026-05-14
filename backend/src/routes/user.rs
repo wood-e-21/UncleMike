@@ -18,7 +18,13 @@ fn err(status: StatusCode, msg: &str) -> (StatusCode, Json<Value>) {
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/profile", get(get_profile).post(ensure_profile).put(update_profile))
+        .route(
+            "/profile",
+            get(get_profile)
+                .post(ensure_profile)
+                .put(patch_profile)
+                .patch(patch_profile),
+        )
         .route("/llm-settings", get(get_llm_settings).put(update_llm_settings))
         .route("/locale", get(get_locale).put(update_locale))
         .route("/account", delete(delete_account))
@@ -99,52 +105,184 @@ async fn ensure_profile(
     Ok(Json(json!({ "ok": true })))
 }
 
+/// `GET /user/profile` returns a unified bag the frontend renders in
+/// Account → general/models. Profile fields come from `user_profiles`;
+/// API keys + tabular_model come from `user_settings`. The frontend's
+/// `ServerProfile` (frontend/src/contexts/UserProfileContext.tsx)
+/// treats these as one shape — that mental model is the contract this
+/// handler implements.
+///
+/// SaaS-only fields (`tier`, `message_credits_used`,
+/// `credits_reset_date`, `organisation`) are omitted; the frontend's
+/// `?? UNMETERED` / `?? "Free"` defaults take over for those.
 async fn get_profile(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> ApiResult {
-    let row: Option<(String, String, Option<String>, String)> =
+    // Auto-create the user_profiles row on first GET so a fresh
+    // workspace doesn't 404 the renderer before the user does anything.
+    sqlx::query(
+        "INSERT OR IGNORE INTO user_profiles (id, username, email, display_name) \
+         VALUES (?, ?, ?, ?)",
+    )
+    .bind(&auth.user_id)
+    .bind(&auth.username)
+    .bind(&auth.username)
+    .bind(&auth.username)
+    .execute(&state.db)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+
+    let prof: (String, String, Option<String>, String) =
         sqlx::query_as(
             "SELECT id, username, display_name, created_at FROM user_profiles WHERE id = ?",
+        )
+        .bind(&auth.user_id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    let (id, username, display_name, created_at) = prof;
+
+    let settings: Option<(Option<String>, Option<String>, Option<String>)> =
+        sqlx::query_as(
+            "SELECT claude_api_key, gemini_api_key, tabular_model \
+             FROM user_settings WHERE user_id = ?",
         )
         .bind(&auth.user_id)
         .fetch_optional(&state.db)
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
-
-    let (id, username, display_name, created_at) =
-        row.ok_or_else(|| err(StatusCode::NOT_FOUND, "Profile not found"))?;
+    let (claude_api_key, gemini_api_key, tabular_model) =
+        settings.unwrap_or((None, None, None));
 
     Ok(Json(json!({
-        "id": id,
+        "user_id": id,
         "username": username,
         "display_name": display_name,
         "created_at": created_at,
+        "claude_api_key": claude_api_key,
+        "gemini_api_key": gemini_api_key,
+        "tabular_model": tabular_model,
     })))
 }
 
 // ---------------------------------------------------------------------------
-// PUT /user/profile
-// Body: { display_name? }
+// PATCH /user/profile (also PUT, same handler)
+//
+// Unified update endpoint. The frontend posts a partial `ServerProfile`
+// and we route each field to the right table:
+//   - display_name → user_profiles
+//   - claude_api_key, gemini_api_key, tabular_model → user_settings
+//   - Anything else (organisation, tier, …) is accepted and ignored
+//     (SaaS-only fields not modeled in the local DB).
+//
+// Patch semantics: a missing key means "leave unchanged"; an explicit
+// null or empty string clears the value. We use COALESCE on the SQL
+// side so a NULL bind doesn't clobber a configured value.
+//
+// Returns the same unified shape `get_profile` returns, so the
+// frontend can `setProfile(toClientProfile(updated))` immediately
+// without re-fetching.
 // ---------------------------------------------------------------------------
 #[derive(Deserialize)]
-struct UpdateProfileBody {
+struct PatchProfileBody {
+    #[serde(default)]
     display_name: Option<String>,
+    #[serde(default)]
+    claude_api_key: Option<String>,
+    #[serde(default)]
+    gemini_api_key: Option<String>,
+    #[serde(default)]
+    tabular_model: Option<String>,
+    // Accepted but not persisted — SaaS-only field that the
+    // frontend's UserProfile shape still has. Kept here so axum's
+    // strict deserializer doesn't reject the payload.
+    #[serde(default, rename = "organisation")]
+    _organisation: Option<String>,
 }
 
-async fn update_profile(
+async fn patch_profile(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-    Json(body): Json<UpdateProfileBody>,
+    Json(body): Json<PatchProfileBody>,
 ) -> ApiResult {
-    sqlx::query("UPDATE user_profiles SET display_name = ? WHERE id = ?")
+    // 1. Update the user_profiles row when display_name was sent.
+    if body.display_name.is_some() {
+        sqlx::query(
+            "UPDATE user_profiles SET display_name = COALESCE(?, display_name) WHERE id = ?",
+        )
         .bind(&body.display_name)
         .bind(&auth.user_id)
         .execute(&state.db)
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+    }
 
-    Ok(Json(json!({ "ok": true })))
+    // 2. Update the user_settings row when any LLM-related field was
+    //    sent. Two-step upsert: seed an empty row first (so brand-new
+    //    users have something to UPDATE), then issue per-field updates
+    //    only for fields the client actually sent. Per-field UPDATEs
+    //    are clearer than a single CASE-WHEN expression and let us
+    //    keep the explicit-clear semantic ("" → NULL) inline.
+    let touches_settings = body.claude_api_key.is_some()
+        || body.gemini_api_key.is_some()
+        || body.tabular_model.is_some();
+    if touches_settings {
+        sqlx::query(
+            "INSERT OR IGNORE INTO user_settings (user_id, updated_at) \
+             VALUES (?, datetime('now'))",
+        )
+        .bind(&auth.user_id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+
+        // Empty string is the explicit-clear sentinel from the UI's
+        // "save with empty input" path; normalize to NULL so reads
+        // see "no key configured" rather than an empty key that
+        // silently fails the upstream API call.
+        if let Some(value) = body.claude_api_key.as_deref() {
+            let normalized = if value.is_empty() { None } else { Some(value) };
+            sqlx::query(
+                "UPDATE user_settings SET claude_api_key = ?, \
+                                          updated_at = datetime('now') \
+                 WHERE user_id = ?",
+            )
+            .bind(normalized)
+            .bind(&auth.user_id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+        }
+        if let Some(value) = body.gemini_api_key.as_deref() {
+            let normalized = if value.is_empty() { None } else { Some(value) };
+            sqlx::query(
+                "UPDATE user_settings SET gemini_api_key = ?, \
+                                          updated_at = datetime('now') \
+                 WHERE user_id = ?",
+            )
+            .bind(normalized)
+            .bind(&auth.user_id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+        }
+        if let Some(value) = body.tabular_model.as_deref() {
+            sqlx::query(
+                "UPDATE user_settings SET tabular_model = ?, \
+                                          updated_at = datetime('now') \
+                 WHERE user_id = ?",
+            )
+            .bind(value)
+            .bind(&auth.user_id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+        }
+    }
+
+    // 3. Return the unified shape so the client can update its cache.
+    get_profile(State(state), auth).await
 }
 
 // ---------------------------------------------------------------------------
