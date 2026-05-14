@@ -389,7 +389,16 @@ export async function createChat(payload?: {
 }
 
 export async function listChats(): Promise<MikeChat[]> {
-    return apiRequest<MikeChat[]>("/chat");
+    // Backend (`backend/src/routes/chat.rs::list_chats`) returns
+    // `{ chats: [...] }`. Older callers / a future refactor may return
+    // a bare array; tolerate both shapes the same way `listProjects`
+    // does, so neither change breaks the sidebar with a runtime
+    // `.map is not a function` (the bug this defensive shape is here
+    // to prevent).
+    const data = await apiRequest<{ chats: MikeChat[] } | MikeChat[]>(
+        "/chat",
+    );
+    return Array.isArray(data) ? data : data.chats ?? [];
 }
 
 export async function listProjectChats(projectId: string): Promise<MikeChat[]> {
@@ -754,7 +763,13 @@ type WorkflowType = MikeWorkflow["type"];
 export async function listWorkflows(
     type: WorkflowType,
 ): Promise<MikeWorkflow[]> {
-    return apiRequest<MikeWorkflow[]>(`/workflows?type=${type}`);
+    // Backend wraps in `{ workflows: [...] }`; tolerate both shapes
+    // (see `listProjects` / `listChats` for the same pattern + bug
+    // history).
+    const data = await apiRequest<
+        { workflows: MikeWorkflow[] } | MikeWorkflow[]
+    >(`/workflows?type=${type}`);
+    return Array.isArray(data) ? data : data.workflows ?? [];
 }
 
 export async function getWorkflow(workflowId: string): Promise<MikeWorkflow> {
