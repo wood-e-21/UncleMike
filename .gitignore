@@ -19,6 +19,8 @@ __pycache__/
 
 # Electron build outputs
 release/
+dist-electron/
+backend/.dist-bundle/
 
 # Local env
 .env
@@ -77,12 +79,6 @@ italian-legal-*.parquet
 # Setup archives
 pdfium-*.tgz
 pdfium-*.zip
-
-# Tauri (slated for removal in Phase 1)
-.taurignore
-/src-tauri/target
-/src-tauri/gen
-src-tauri/libs/pdfium/
 
 # Windows build artifacts
 *.pdb

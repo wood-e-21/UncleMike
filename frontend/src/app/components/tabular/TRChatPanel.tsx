@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -456,7 +455,6 @@ function TRChatInput({
     onModelChange: (id: string) => void;
     apiKeys: { claudeApiKey: string | null; geminiApiKey: string | null };
 }) {
-    const tA = useTranslations("Assistant");
     const [value, setValue] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -478,7 +476,7 @@ function TRChatInput({
                 <textarea
                     ref={textareaRef}
                     rows={1}
-                    placeholder={tA("placeholder")}
+                    placeholder="Ask a question about your documents..."
                     value={value}
                     onChange={(e) => {
                         setValue(e.target.value);
@@ -534,7 +532,6 @@ function HistoryDropdown({
     currentChatId: string | null;
     onLoad: (chatId: string) => void;
 }) {
-    const tSidebar = useTranslations("Sidebar");
     const [query, setQuery] = useState("");
     const filtered = chats
         .filter((c) => c.id !== currentChatId)
@@ -550,7 +547,7 @@ function HistoryDropdown({
                 <input
                     autoFocus
                     type="text"
-                    placeholder={tSidebar("search")}
+                    placeholder="Search chats…"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     className="flex-1 text-xs bg-transparent outline-none placeholder:text-gray-400 text-gray-700"
@@ -614,9 +611,6 @@ export function TRChatPanel({
         claudeApiKey: profile?.claudeApiKey ?? null,
         geminiApiKey: profile?.geminiApiKey ?? null,
     };
-    const tA = useTranslations("Assistant");
-    const tCommon = useTranslations("Common");
-    const tSidebar = useTranslations("Sidebar");
     const currentModel = profile?.tabularModel ?? "gemini-3-flash-preview";
     const [apiKeyModalProvider, setApiKeyModalProvider] =
         useState<ModelProvider | null>(null);
@@ -1354,7 +1348,7 @@ export function TRChatPanel({
                     <div ref={historyRef} className="relative">
                         <button
                             onClick={() => setHistoryOpen((v) => !v)}
-                            title={tSidebar("recentChats")}
+                            title="Chat history"
                             className={`flex items-center justify-center h-7 w-7 rounded-md transition-colors ${historyOpen ? "text-gray-900" : "text-gray-400 hover:text-gray-700"}`}
                         >
                             <Clock className="h-3.5 w-3.5" />
@@ -1371,7 +1365,7 @@ export function TRChatPanel({
                     </div>
                     <button
                         onClick={handleNewChat}
-                        title={tSidebar("newChat")}
+                        title="New chat"
                         className="flex items-center justify-center h-7 w-7 rounded-md text-gray-400 hover:text-gray-700 transition-colors"
                     >
                         <MessageSquarePlus className="h-3.5 w-3.5" />
@@ -1379,7 +1373,7 @@ export function TRChatPanel({
                     {currentChatId && (
                         <button
                             onClick={handleDeleteChat}
-                            title={tSidebar("deleteChat")}
+                            title="Delete chat"
                             className="flex items-center justify-center h-7 w-7 rounded-md text-gray-400 hover:text-red-600 transition-colors"
                         >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -1387,7 +1381,7 @@ export function TRChatPanel({
                     )}
                     <button
                         onClick={onClose}
-                        title={tCommon("close")}
+                        title="Close"
                         className="flex items-center justify-center h-7 w-7 rounded-md text-gray-400 hover:text-gray-700 transition-colors"
                     >
                         <X className="h-3.5 w-3.5" />

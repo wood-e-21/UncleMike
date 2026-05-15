@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
 import {
     Upload,
     Plus,
@@ -16,15 +15,11 @@ import {
     Folder,
     FolderOpen,
     FolderPlus,
-    Lock,
     MessageSquare,
-    Package,
     Pencil,
-    Share2,
     Table2,
     Users,
 } from "lucide-react";
-import { ProjectExportModal } from "@/app/components/projects/ProjectExportModal";
 import { HeaderSearchBtn } from "@/app/components/shared/HeaderSearchBtn";
 import {
     getProject,
@@ -139,7 +134,6 @@ function DocVersionHistory({
         displayName: string | null,
     ) => Promise<void> | void;
 }) {
-    const tDV = useTranslations("DocVersions");
     const [editingVersionId, setEditingVersionId] = useState<string | null>(
         null,
     );
@@ -159,7 +153,7 @@ function DocVersionHistory({
                 <div className={`sticky left-8 z-[60] ${NAME_COL_W} bg-gray-50/60 p-2`}>
                     <div className="flex items-center gap-2">
                         <Loader2 className="h-3 w-3 animate-spin text-gray-400" />
-                        <span>{tDV("loading")}</span>
+                        <span>Loading versions…</span>
                     </div>
                 </div>
             </div>
@@ -170,7 +164,9 @@ function DocVersionHistory({
             <div className="flex items-center h-9 border-b border-gray-50 text-xs text-gray-400 bg-gray-50/60">
                 <div className={`sticky left-0 z-[60] ${CHECK_W} bg-gray-50/60 self-stretch`} />
                 <div className={`sticky left-8 z-[60] ${NAME_COL_W} bg-gray-50/60 p-2`}>
-                    <div>{tDV("noHistory")}</div>
+                    <div>
+                        No version history.
+                    </div>
                 </div>
             </div>
         );
@@ -242,7 +238,7 @@ function DocVersionHistory({
                                         setEditingVersionId(v.id);
                                         setEditingValue(v.display_name ?? "");
                                     }}
-                                    title={tDV("renameVersion")}
+                                    title="Rename version"
                                     className="shrink-0 rounded p-0.5 text-gray-400 opacity-0 group-hover:opacity-100 hover:text-gray-700 hover:bg-gray-200 transition"
                                 >
                                     <Pencil className="h-3 w-3" />
@@ -262,7 +258,7 @@ function DocVersionHistory({
                                     e.stopPropagation();
                                     onDownloadVersion(docId, v.id, filename);
                                 }}
-                                title={tDV("downloadVersion")}
+                                title="Download this version"
                                 className="flex items-center justify-center w-6 h-6 rounded text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors"
                             >
                                 <Download className="h-3.5 w-3.5" />
@@ -276,8 +272,6 @@ function DocVersionHistory({
 }
 
 export function ProjectPage({ projectId }: Props) {
-    const tCommon = useTranslations("Common");
-    const tProj = useTranslations("Projects");
     const [project, setProject] = useState<MikeProject | null>(null);
     const [folders, setFolders] = useState<MikeFolder[]>([]);
     const [chats, setChats] = useState<MikeChat[]>([]);
@@ -291,7 +285,6 @@ export function ProjectPage({ projectId }: Props) {
             : "documents";
     const [addDocsOpen, setAddDocsOpen] = useState(false);
     const [peopleModalOpen, setPeopleModalOpen] = useState(false);
-    const [exportModalOpen, setExportModalOpen] = useState(false);
     const [ownerOnlyAction, setOwnerOnlyAction] = useState<string | null>(null);
     const { user } = useAuth();
     const [uploadVersionDoc, setUploadVersionDoc] =
@@ -868,7 +861,7 @@ export function ProjectPage({ projectId }: Props) {
                         <input
                             autoFocus
                             className="flex-1 min-w-0 text-sm text-gray-800 bg-transparent outline-none border-b border-gray-300"
-                            placeholder={tProj("projectName")}
+                            placeholder="Folder name"
                             value={newFolderName}
                             onChange={(e) => setNewFolderName(e.target.value)}
                             onKeyDown={(e) => {
@@ -1118,7 +1111,7 @@ export function ProjectPage({ projectId }: Props) {
             <div className="flex-1 overflow-y-auto bg-white">
                 <div className="flex items-start justify-between px-8 py-4">
                     <div className="flex items-center gap-1.5 text-2xl font-medium font-serif">
-                        <span className="text-gray-400">Projects</span>
+                        <span className="text-gray-400">Matters</span>
                         <span className="text-gray-300">›</span>
                         <div className="h-6 w-40 rounded bg-gray-100 animate-pulse" />
                     </div>
@@ -1155,7 +1148,7 @@ export function ProjectPage({ projectId }: Props) {
     if (!project) {
         return (
             <div className="flex h-full items-center justify-center">
-                <p className="text-gray-400">Project not found</p>
+                <p className="text-gray-400">Matter not found</p>
             </div>
         );
     }
@@ -1282,69 +1275,15 @@ export function ProjectPage({ projectId }: Props) {
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <HeaderSearchBtn value={search} onChange={setSearch} placeholder={tCommon("search")} />
+                    <HeaderSearchBtn value={search} onChange={setSearch} placeholder="Search…" />
                     <button
                         onClick={() => setPeopleModalOpen(true)}
                         className="flex h-8 w-8 items-center justify-center text-sm text-gray-500 transition-colors hover:text-gray-900 cursor-pointer"
-                        title={tProj("members")}
-                        aria-label={tProj("members")}
+                        title="People with access"
+                        aria-label="People with access"
                     >
                         <Users className="h-4 w-4" />
                     </button>
-                    {/*
-                      RAG isolation toggle. Only the project owner can flip
-                      it — non-owners just see the current state. Strict
-                      means chats inside this project see ONLY the
-                      project's indexed documents (no global pool); useful
-                      for cases with conflict-of-interest concerns. Default
-                      is shared.
-                    */}
-                    {(project.is_owner ?? true) && (
-                        <button
-                            onClick={async () => {
-                                const next: "shared" | "strict" =
-                                    project.isolation_mode === "strict"
-                                        ? "shared"
-                                        : "strict";
-                                try {
-                                    await updateProject(projectId, {
-                                        isolation_mode: next,
-                                    });
-                                    setProject((prev) =>
-                                        prev ? { ...prev, isolation_mode: next } : prev,
-                                    );
-                                } catch (e) {
-                                    console.error("isolation toggle failed", e);
-                                }
-                            }}
-                            className="flex h-8 w-8 items-center justify-center text-sm text-gray-500 transition-colors hover:text-gray-900 cursor-pointer"
-                            title={
-                                project.isolation_mode === "strict"
-                                    ? "Modalità isolata: la chat di questo progetto NON vede i documenti globali. Click per condividere."
-                                    : "Modalità condivisa (default): la chat di questo progetto vede globali + propri documenti. Click per isolare."
-                            }
-                            aria-label="Toggle project RAG isolation mode"
-                        >
-                            {project.isolation_mode === "strict" ? (
-                                <Lock className="h-4 w-4" />
-                            ) : (
-                                <Share2 className="h-4 w-4" />
-                            )}
-                        </button>
-                    )}
-                    {/* Export project as .mikeprj — owner-only. The modal
-                        handles the encryption pinning to a recipient
-                        email and triggers the download. */}
-                    {(project.is_owner ?? true) && (
-                        <button
-                            onClick={() => setExportModalOpen(true)}
-                            className="flex h-8 w-8 items-center justify-center text-sm text-gray-500 transition-colors hover:text-gray-900 cursor-pointer"
-                            title="Esporta progetto come .mikeprj"
-                            aria-label="Export project"
-                        >
-                            <Package className="h-4 w-4" />
-                        </button>
-                    )}
                     <div className="relative group">
                         <button
                             onClick={() => !creatingChat && handleNewChat()}
@@ -1777,7 +1716,7 @@ export function ProjectPage({ projectId }: Props) {
                 open={addDocsOpen}
                 onClose={() => setAddDocsOpen(false)}
                 onSelect={handleDocsSelected}
-                breadcrumb={["Projects", project.name + (project.cm_number ? ` (${project.cm_number})` : ""), "Add Documents"]}
+                breadcrumb={["Matters", project.name + (project.cm_number ? ` (${project.cm_number})` : ""), "Add Documents"]}
                 projectId={projectId}
             />
 
@@ -1816,13 +1755,6 @@ export function ProjectPage({ projectId }: Props) {
                 onClose={() => setOwnerOnlyAction(null)}
             />
 
-            <ProjectExportModal
-                open={exportModalOpen}
-                onClose={() => setExportModalOpen(false)}
-                projectId={projectId}
-                projectName={project.name}
-            />
-
             <PeopleModal
                 open={peopleModalOpen}
                 onClose={() => setPeopleModalOpen(false)}
@@ -1830,7 +1762,7 @@ export function ProjectPage({ projectId }: Props) {
                 fetchPeople={getProjectPeople}
                 currentUserEmail={user?.email ?? null}
                 breadcrumb={[
-                    "Projects",
+                    "Matters",
                     project
                         ? project.name +
                           (project.cm_number ? ` (${project.cm_number})` : "")

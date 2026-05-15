@@ -1,7 +1,6 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useTranslations } from "next-intl";
 import { Lock, X } from "lucide-react";
 
 interface Props {
@@ -26,17 +25,18 @@ interface Props {
 export function OwnerOnlyModal({
     open,
     onClose,
-    title,
+    title = "Owner-only action",
     action,
     ownerEmail,
     message,
 }: Props) {
-    const t = useTranslations("Modals.ownerOnly");
     if (!open) return null;
 
     const body =
         message ??
-        (action ? t("bodyWithAction", { action }) : t("body"));
+        (action
+            ? `Only the matter owner can ${action}.`
+            : "Only the matter owner can perform this action.");
 
     return createPortal(
         <div
@@ -52,7 +52,7 @@ export function OwnerOnlyModal({
                     <div className="flex items-center gap-2">
                         <Lock className="h-4 w-4 text-amber-600" />
                         <h2 className="text-base font-medium text-gray-900">
-                            {title ?? t("title")}
+                            {title}
                         </h2>
                     </div>
                     <button
@@ -70,7 +70,9 @@ export function OwnerOnlyModal({
                     </p>
                     {ownerEmail && (
                         <p className="mt-2 text-xs text-gray-400">
-                            {t("askOwner", { email: ownerEmail })}
+                            Ask{" "}
+                            <span className="text-gray-600">{ownerEmail}</span>{" "}
+                            if you need access.
                         </p>
                     )}
                 </div>

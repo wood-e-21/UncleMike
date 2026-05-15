@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useLocale, useTranslations } from "next-intl";
-import { Plus, FolderOpen, ChevronDown, Upload, Loader2 } from "lucide-react";
+import { Plus, FolderOpen, ChevronDown } from "lucide-react";
 import { HeaderSearchBtn } from "@/app/components/shared/HeaderSearchBtn";
 import { listProjects, updateProject, deleteProject } from "@/app/lib/mikeApi";
 import { OwnerOnlyModal } from "@/app/components/shared/OwnerOnlyModal";
@@ -13,10 +12,8 @@ import { NewProjectModal } from "./NewProjectModal";
 import { ToolbarTabs } from "@/app/components/shared/ToolbarTabs";
 import { RowActions } from "@/app/components/shared/RowActions";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
-
-function formatDate(iso: string, locale: string) {
-    return new Date(iso).toLocaleDateString(locale, {
+function formatDate(iso: string) {
+    return new Date(iso).toLocaleDateString(undefined, {
         day: "numeric",
         month: "short",
         year: "numeric",
@@ -44,20 +41,6 @@ export function ProjectsOverview() {
     const actionsRef = useRef<HTMLDivElement>(null);
     const router = useRouter();
     const { user } = useAuth();
-    const t = useTranslations("Projects");
-    const tCommon = useTranslations("Common");
-    const tImport = useTranslations("ProjectImport");
-    const locale = useLocale();
-    // Import-via-drag&drop state. We track:
-    //  - whether we're showing the drop overlay (file dragged over the page)
-    //  - the file the user dropped (waiting for the email confirmation)
-    //  - the email they confirmed with (needed to derive the AES key)
-    //  - in-flight + error state during the actual POST
-    const [dragOver, setDragOver] = useState(false);
-    const [pendingFile, setPendingFile] = useState<File | null>(null);
-    const [importEmail, setImportEmail] = useState("");
-    const [importing, setImporting] = useState(false);
-    const [importError, setImportError] = useState<string | null>(null);
 
     useEffect(() => {
         listProjects()
@@ -117,9 +100,9 @@ export function ProjectsOverview() {
     }
 
     const tabs: { id: Tab; label: string }[] = [
-        { id: "all", label: t("tabAll") },
-        { id: "mine", label: t("tabMine") },
-        { id: "shared-with-me", label: t("tabSharedWithMe") },
+        { id: "all", label: "All" },
+        { id: "mine", label: "Mine" },
+        { id: "shared-with-me", label: "Shared with me" },
     ];
 
     async function handleRenameSubmit(projectId: string) {
@@ -146,8 +129,8 @@ export function ProjectsOverview() {
     async function handleDeleteSelected() {
         const ids = [...selectedIds];
         setActionsOpen(false);
-        // Only the project owner can delete; the per-row delete is hidden
-        // for shared projects but the bulk action can still pick them up
+        // Only the matter owner can delete; the per-row delete is hidden
+        // for shared matters but the bulk action can still pick them up
         // if a user toggled them across tabs. Filter and warn.
         const owned = ids.filter((id) => {
             const p = projects.find((pp) => pp.id === id);
@@ -159,7 +142,7 @@ export function ProjectsOverview() {
         setProjects((prev) => prev.filter((p) => !owned.includes(p.id)));
         if (blocked > 0) {
             setOwnerOnlyAction(
-                t("ownerOnlyDelete", { count: blocked }),
+                `delete ${blocked} of the selected matters — only the matter owner can delete a matter`,
             );
         }
     }
@@ -172,7 +155,7 @@ export function ProjectsOverview() {
                         onClick={() => setActionsOpen((v) => !v)}
                         className="flex items-center gap-1 text-xs font-medium text-gray-700 hover:text-gray-900 transition-colors"
                     >
-                        {tCommon("actions")}
+                        Actions
                         <ChevronDown className="h-3.5 w-3.5" />
                     </button>
                     {actionsOpen && (
@@ -181,7 +164,7 @@ export function ProjectsOverview() {
                                 onClick={handleDeleteSelected}
                                 className="w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 transition-colors"
                             >
-                                {tCommon("delete")}
+                                Delete
                             </button>
                         </div>
                     )}
@@ -190,169 +173,18 @@ export function ProjectsOverview() {
         </div>
     );
 
-    // ---- Drag & drop handlers for .mikeprj import -----------------------------
-    const handleDragOver = (e: React.DragEvent) => {
-        // Only react when an actual file is being dragged in. Without this
-        // check, dragging text/links across the page would also pop the
-        // overlay, which is jarring.
-        if (
-            e.dataTransfer.types.includes("Files") ||
-            e.dataTransfer.types.includes("application/x-moz-file")
-        ) {
-            e.preventDefault();
-            setDragOver(true);
-        }
-    };
-    const handleDragLeave = (e: React.DragEvent) => {
-        // Only reset when we leave the entire wrapper, not children.
-        if (e.currentTarget === e.target) setDragOver(false);
-    };
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault();
-        setDragOver(false);
-        const file = e.dataTransfer.files[0];
-        if (!file) return;
-        if (!file.name.toLowerCase().endsWith(".mikeprj")) return;
-        setPendingFile(file);
-        setImportEmail(user?.email ?? "");
-        setImportError(null);
-    };
-    const handleImportSubmit = async () => {
-        if (!pendingFile || !importEmail.trim()) return;
-        setImporting(true);
-        setImportError(null);
-        try {
-            const fd = new FormData();
-            fd.append("file", pendingFile);
-            fd.append("recipient_email", importEmail.trim());
-            const token =
-                typeof window !== "undefined"
-                    ? localStorage.getItem("mike_auth_token") ?? ""
-                    : "";
-            const res = await fetch(`${API_BASE}/project/import`, {
-                method: "POST",
-                headers: { Authorization: `Bearer ${token}` },
-                body: fd,
-            });
-            if (!res.ok) {
-                const txt = await res.text().catch(() => "");
-                if (res.status === 400 && txt.includes("different email")) {
-                    throw new Error(tImport("errorWrongEmail"));
-                }
-                throw new Error(`HTTP ${res.status}: ${txt || res.statusText}`);
-            }
-            const data = (await res.json()) as { project_id: string };
-            setPendingFile(null);
-            router.push(`/projects/${data.project_id}`);
-        } catch (e) {
-            setImportError(e instanceof Error ? e.message : String(e));
-        } finally {
-            setImporting(false);
-        }
-    };
-
     return (
-        <div
-            className="flex-1 overflow-y-auto bg-white relative"
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-        >
-            {/* Drop overlay — only visible while a file is being dragged
-                over the page. Captures pointer events so the underlying
-                table doesn't fight for the drop. */}
-            {dragOver && (
-                <div className="fixed inset-0 z-[150] bg-blue-50/80 border-4 border-dashed border-blue-400 flex items-center justify-center pointer-events-none">
-                    <div className="bg-white rounded-2xl shadow-xl px-6 py-4 text-blue-700 font-medium flex items-center gap-2">
-                        <Upload className="h-5 w-5" />
-                        {tImport("dropHint")}
-                    </div>
-                </div>
-            )}
-
-            {/* Confirm-import dialog. Shows once the user has dropped a
-                .mikeprj file. The email is required because that's how
-                the file's AES key was derived at export time. */}
-            {pendingFile && (
-                <div
-                    className="fixed inset-0 z-[200] flex items-center justify-center bg-black/20 backdrop-blur-xs"
-                    onClick={importing ? undefined : () => setPendingFile(null)}
-                >
-                    <div
-                        className="w-full max-w-md rounded-2xl bg-white shadow-2xl flex flex-col"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="px-5 pt-5 pb-2">
-                            <h2 className="text-base font-medium text-gray-900">
-                                {tImport("title")}
-                            </h2>
-                            <p className="mt-1 text-sm text-gray-500 leading-relaxed">
-                                {tImport("subtitle")}
-                            </p>
-                        </div>
-                        <div className="px-5 py-3 space-y-3">
-                            <div className="text-xs text-gray-500">
-                                <span className="font-medium text-gray-700">
-                                    {pendingFile.name}
-                                </span>{" "}
-                                ({Math.round(pendingFile.size / 1024)} KB)
-                            </div>
-                            <div>
-                                <label className="text-xs font-medium text-gray-700 block mb-1">
-                                    {tImport("yourEmail")}
-                                </label>
-                                <input
-                                    type="email"
-                                    value={importEmail}
-                                    onChange={(e) => setImportEmail(e.target.value)}
-                                    className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:border-gray-400"
-                                />
-                                <p className="mt-1 text-[11px] text-gray-400">
-                                    {tImport("yourEmailHint")}
-                                </p>
-                            </div>
-                            {importError && (
-                                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                                    {importError}
-                                </p>
-                            )}
-                        </div>
-                        <div className="flex justify-end gap-2 px-5 pb-5 pt-2">
-                            <button
-                                onClick={importing ? undefined : () => setPendingFile(null)}
-                                className="rounded-lg px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
-                            >
-                                {tCommon("cancel")}
-                            </button>
-                            <button
-                                onClick={handleImportSubmit}
-                                disabled={importing || !importEmail.trim()}
-                                className="rounded-lg bg-gray-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-40 inline-flex items-center gap-1"
-                            >
-                                {importing ? (
-                                    <>
-                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        {tImport("dropping")}
-                                    </>
-                                ) : (
-                                    tImport("importNow")
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
+        <div className="flex-1 overflow-y-auto bg-white">
             {/* Page header */}
             <div className="flex items-center justify-between px-8 py-4">
                 <h1 className="text-2xl font-medium font-serif text-gray-900">
-                    {t("title")}
+                    Matters
                 </h1>
                 <div className="flex items-center gap-2">
                     <HeaderSearchBtn
                         value={search}
                         onChange={setSearch}
-                        placeholder={t("searchPlaceholder")}
+                        placeholder="Search matters…"
                     />
                     <button
                         onClick={() => setModalOpen(true)}
@@ -389,15 +221,15 @@ export function ProjectsOverview() {
                         )}
                     </div>
                     <div className={`sticky left-8 z-[60] ${NAME_COL_W} bg-white pl-2 text-left`}>
-                        {tCommon("name")}
+                        Name
                     </div>
-                    <div className="ml-auto w-32 shrink-0 text-left">{t("cmShort")}</div>
-                    <div className="w-24 shrink-0 text-left">{t("files")}</div>
-                    <div className="w-24 shrink-0 text-left">{t("chats")}</div>
+                    <div className="ml-auto w-32 shrink-0 text-left">CM</div>
+                    <div className="w-24 shrink-0 text-left">Files</div>
+                    <div className="w-24 shrink-0 text-left">Chats</div>
                     <div className="w-36 shrink-0 text-left">
-                        {t("tabularReviews")}
+                        Tabular Reviews
                     </div>
-                    <div className="w-32 shrink-0 text-left">{t("created")}</div>
+                    <div className="w-32 shrink-0 text-left">Created</div>
                     <div className="w-8 shrink-0" />
                 </div>
 
@@ -437,21 +269,23 @@ export function ProjectsOverview() {
                             <>
                                 <FolderOpen className="h-8 w-8 text-gray-300 mb-4" />
                                 <p className="text-2xl font-medium font-serif text-gray-900">
-                                    {t("title")}
+                                    Matters
                                 </p>
                                 <p className="mt-1 text-xs text-gray-400 max-w-xs">
-                                    {t("emptyHint")}
+                                    Upload documents into matters and to
+                                    commence chats and tabular reviews with
+                                    them.
                                 </p>
                                 <button
                                     onClick={() => setModalOpen(true)}
                                     className="mt-4 inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700 transition-colors shadow-md"
                                 >
-                                    {t("createNew")}
+                                    + Create New
                                 </button>
                             </>
                         ) : (
                             <p className="text-sm text-gray-400">
-                                {t("noProjectsTab", { tab: activeTab })}
+                                No {activeTab} matters
                             </p>
                         )}
                     </div>
@@ -484,7 +318,7 @@ export function ProjectsOverview() {
                                     />
                                 </div>
 
-                                {/* Project Name */}
+                                {/* Matter Name */}
                                 <div className={`sticky left-8 z-[60] ${NAME_COL_W} p-2 ${rowBg} group-hover:bg-gray-50`}>
                                     {renamingId === project.id ? (
                                         <input
@@ -534,7 +368,7 @@ export function ProjectsOverview() {
                                             onBlur={() =>
                                                 handleCmSubmit(project.id)
                                             }
-                                            placeholder={t("cmShort")}
+                                            placeholder="CM #"
                                             className="w-full text-sm text-gray-800 bg-transparent outline-none"
                                         />
                                     ) : (
@@ -555,7 +389,7 @@ export function ProjectsOverview() {
                                     {project.review_count ?? 0}
                                 </div>
                                 <div className="w-32 shrink-0 text-sm text-gray-500 truncate">
-                                    {formatDate(project.created_at, locale)}
+                                    {formatDate(project.created_at)}
                                 </div>
 
                                 <div

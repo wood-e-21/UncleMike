@@ -1,8 +1,9 @@
 /**
- * Mike API client — all requests to the Node.js backend.
- * Attaches the sovereign JWT token for user authentication.
+ * Mike API client — all requests to the Rust backend supervised by Electron.
+ * Attaches the Electron-issued bearer token through the local auth shim.
  */
 
+import { supabase } from "@/lib/supabase";
 import type {
     AssistantEvent,
     MikeChat,
@@ -33,22 +34,48 @@ interface ServerChatDetailOut {
     messages: ServerMessage[];
 }
 
-const API_BASE =
+// Backend binds to an OS-assigned port. Read the base URL via Electron preload
+// and cache it for the unlock session. The fallback keeps `next dev` working.
+const FALLBACK_API_BASE =
     process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
 
-function getAuthHeader(): Record<string, string> {
-    const token =
-        typeof window !== "undefined"
-            ? localStorage.getItem("mike_auth_token")
-            : null;
-    if (!token) return {};
-    return { Authorization: `Bearer ${token}` };
+let cachedApiBase: string | null = null;
+
+export async function getApiBase(): Promise<string> {
+    if (cachedApiBase) return cachedApiBase;
+    if (typeof window !== "undefined") {
+        const bridge = window.mike as
+            | { getApiBase?: () => Promise<string | null> }
+            | undefined;
+        if (bridge?.getApiBase) {
+            try {
+                const base = await bridge.getApiBase();
+                if (base) {
+                    cachedApiBase = base;
+                    return base;
+                }
+                // Backend not ready yet — return the fallback for this attempt
+                // but don't cache it; the next call retries the IPC.
+            } catch {
+                // fall through
+            }
+        }
+    }
+    return FALLBACK_API_BASE;
+}
+
+async function getAuthHeader(): Promise<Record<string, string>> {
+    const {
+        data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) return {};
+    return { Authorization: `Bearer ${session.access_token}` };
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-    const authHeaders = getAuthHeader();
+    const authHeaders = await getAuthHeader();
     const { headers: initHeaders, ...restInit } = init ?? {};
-    const response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetch(`${await getApiBase()}${path}`, {
         cache: "no-store",
         ...restInit,
         headers: {
@@ -57,16 +84,6 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
             ...(initHeaders as Record<string, string> | undefined),
         },
     });
-
-    // Stale token (typically: a session token left over from a previous
-    // DB or process). Clear local auth and bounce to /login so the user
-    // gets a fresh session instead of every API call silently failing.
-    if (response.status === 401 && typeof window !== "undefined") {
-        localStorage.removeItem("mike_auth_token");
-        localStorage.removeItem("mike_auth_user");
-        window.location.href = "/login";
-        throw new Error("Session expired");
-    }
 
     if (!response.ok) {
         const detail = await response.text();
@@ -88,8 +105,8 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
 // ---------------------------------------------------------------------------
 
 export async function listProjects(): Promise<MikeProject[]> {
-    const data = await apiRequest<{ projects: MikeProject[] } | MikeProject[]>("/project");
-    return Array.isArray(data) ? data : (data as { projects: MikeProject[] }).projects ?? [];
+    const data = await apiRequest<{ projects: MikeProject[] } | MikeProject[]>("/projects");
+    return Array.isArray(data) ? data : data.projects ?? [];
 }
 
 export async function createProject(
@@ -97,7 +114,7 @@ export async function createProject(
     cm_number?: string,
     shared_with?: string[],
 ): Promise<MikeProject> {
-    return apiRequest<MikeProject>("/project", {
+    return apiRequest<MikeProject>("/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, cm_number, shared_with }),
@@ -109,7 +126,7 @@ export async function deleteAccount(): Promise<void> {
 }
 
 export async function getProject(projectId: string): Promise<MikeProject> {
-    return apiRequest<MikeProject>(`/project/${projectId}`);
+    return apiRequest<MikeProject>(`/projects/${projectId}`);
 }
 
 export async function updateProject(
@@ -118,11 +135,9 @@ export async function updateProject(
         name?: string;
         cm_number?: string;
         shared_with?: string[];
-        /** RAG scope: see MikeProject.isolation_mode for semantics. */
-        isolation_mode?: "shared" | "strict";
     },
 ): Promise<MikeProject> {
-    return apiRequest<MikeProject>(`/project/${projectId}`, {
+    return apiRequest<MikeProject>(`/projects/${projectId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -130,7 +145,7 @@ export async function updateProject(
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
-    await apiRequest(`/project/${projectId}`, { method: "DELETE" });
+    await apiRequest(`/projects/${projectId}`, { method: "DELETE" });
 }
 
 export interface ProjectPeople {
@@ -215,24 +230,23 @@ export async function moveDocumentToFolder(
     documentId: string,
     folderId: string | null,
 ): Promise<MikeDocument> {
-    return apiRequest<MikeDocument>(
-        `/projects/${projectId}/documents/${documentId}/folder`,
-        {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ folder_id: folderId }),
-        },
-    );
+    void projectId;
+    return apiRequest<MikeDocument>(`/document/${documentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder_id: folderId }),
+    });
 }
 
 export async function addDocumentToProject(
     projectId: string,
     documentId: string,
 ): Promise<MikeDocument> {
-    return apiRequest<MikeDocument>(
-        `/projects/${projectId}/documents/${documentId}`,
-        { method: "POST" },
-    );
+    return apiRequest<MikeDocument>(`/document/${documentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: projectId }),
+    });
 }
 
 export interface MikeDocumentVersion {
@@ -257,12 +271,12 @@ export async function uploadDocumentVersion(
     file: File,
     displayName?: string,
 ): Promise<MikeDocumentVersion> {
-    const authHeaders = getAuthHeader();
+    const authHeaders = await getAuthHeader();
     const form = new FormData();
     form.append("file", file);
     if (displayName) form.append("display_name", displayName);
     const response = await fetch(
-        `${API_BASE}/single-documents/${documentId}/versions`,
+        `${await getApiBase()}/single-documents/${documentId}/versions`,
         {
             method: "POST",
             headers: { ...authHeaders },
@@ -292,35 +306,26 @@ export async function uploadProjectDocument(
     projectId: string,
     file: File,
 ): Promise<MikeDocument> {
-    const authHeaders = getAuthHeader();
+    const authHeaders = await getAuthHeader();
     const form = new FormData();
     form.append("file", file);
-    const response = await fetch(
-        `${API_BASE}/projects/${projectId}/documents`,
-        {
-            method: "POST",
-            headers: { ...authHeaders },
-            body: form,
-        },
-    );
+    form.append("project_id", projectId);
+    const response = await fetch(`${await getApiBase()}/document`, {
+        method: "POST",
+        headers: { ...authHeaders },
+        body: form,
+    });
     if (!response.ok) throw new Error(await response.text());
     return response.json() as Promise<MikeDocument>;
 }
 
 export async function uploadStandaloneDocument(
     file: File,
-    options?: { cache?: boolean },
 ): Promise<MikeDocument> {
-    const authHeaders = getAuthHeader();
+    const authHeaders = await getAuthHeader();
     const form = new FormData();
     form.append("file", file);
-    // `cache: true` tells the backend this is a chat-attached upload —
-    // it lands under data/storage/cache/<doc_id> and gets cleaned up
-    // when the chat it ends up linked to is deleted. Other call sites
-    // (project libraries, tabular review setup) leave this off so the
-    // upload stays in the long-lived documents/ tree.
-    if (options?.cache) form.append("cache", "true");
-    const response = await fetch(`${API_BASE}/single-documents`, {
+    const response = await fetch(`${await getApiBase()}/single-documents`, {
         method: "POST",
         headers: { ...authHeaders },
         body: form,
@@ -330,7 +335,10 @@ export async function uploadStandaloneDocument(
 }
 
 export async function listStandaloneDocuments(): Promise<MikeDocument[]> {
-    return apiRequest<MikeDocument[]>("/single-documents");
+    const data = await apiRequest<{ documents: MikeDocument[] } | MikeDocument[]>(
+        "/single-documents",
+    );
+    return Array.isArray(data) ? data : data.documents ?? [];
 }
 
 export async function deleteDocument(documentId: string): Promise<void> {
@@ -350,8 +358,8 @@ export async function getDocumentUrl(
 export async function downloadDocumentsZip(
     documentIds: string[],
 ): Promise<Blob> {
-    const authHeaders = getAuthHeader();
-    const response = await fetch(`${API_BASE}/single-documents/download-zip`, {
+    const authHeaders = await getAuthHeader();
+    const response = await fetch(`${await getApiBase()}/single-documents/download-zip`, {
         method: "POST",
         cache: "no-store",
         headers: {
@@ -382,12 +390,21 @@ export async function createChat(payload?: {
 }
 
 export async function listChats(): Promise<MikeChat[]> {
-    const data = await apiRequest<{ chats: MikeChat[] } | MikeChat[]>("/chat");
-    return Array.isArray(data) ? data : (data as { chats: MikeChat[] }).chats ?? [];
+    // Backend (`backend/src/routes/chat.rs::list_chats`) returns
+    // `{ chats: [...] }`. Older callers / a future refactor may return
+    // a bare array; tolerate both shapes the same way `listProjects`
+    // does, so neither change breaks the sidebar with a runtime
+    // `.map is not a function` (the bug this defensive shape is here
+    // to prevent).
+    const data = await apiRequest<{ chats: MikeChat[] } | MikeChat[]>(
+        "/chat",
+    );
+    return Array.isArray(data) ? data : data.chats ?? [];
 }
 
 export async function listProjectChats(projectId: string): Promise<MikeChat[]> {
-    return apiRequest<MikeChat[]>(`/projects/${projectId}/chats`);
+    const chats = await listChats();
+    return chats.filter((chat) => chat.project_id === projectId);
 }
 
 export async function getChat(chatId: string): Promise<MikeChatDetailOut> {
@@ -454,8 +471,8 @@ export async function streamChat(payload: {
     signal?: AbortSignal;
 }): Promise<Response> {
     const { signal, ...body } = payload;
-    const authHeaders = getAuthHeader();
-    return fetch(`${API_BASE}/chat`, {
+    const authHeaders = await getAuthHeader();
+    return fetch(`${await getApiBase()}/chat`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -484,15 +501,15 @@ export async function streamProjectChat(payload: {
     signal?: AbortSignal;
 }): Promise<Response> {
     const { projectId, signal, ...body } = payload;
-    const authHeaders = getAuthHeader();
-    return fetch(`${API_BASE}/projects/${projectId}/chat`, {
+    const authHeaders = await getAuthHeader();
+    return fetch(`${await getApiBase()}/chat`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
             Accept: "text/event-stream",
             ...authHeaders,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, project_id: projectId }),
         signal,
     });
 }
@@ -600,8 +617,8 @@ export async function deleteTabularReview(reviewId: string): Promise<void> {
 export async function streamTabularGeneration(
     reviewId: string,
 ): Promise<Response> {
-    const authHeaders = getAuthHeader();
-    return fetch(`${API_BASE}/tabular-review/${reviewId}/generate`, {
+    const authHeaders = await getAuthHeader();
+    return fetch(`${await getApiBase()}/tabular-review/${reviewId}/generate`, {
         method: "POST",
         headers: { ...authHeaders },
     });
@@ -614,8 +631,8 @@ export async function streamTabularChat(
     signal?: AbortSignal,
     context?: { reviewTitle?: string | null; projectName?: string | null },
 ): Promise<Response> {
-    const authHeaders = getAuthHeader();
-    return fetch(`${API_BASE}/tabular-review/${reviewId}/chat`, {
+    const authHeaders = await getAuthHeader();
+    return fetch(`${await getApiBase()}/tabular-review/${reviewId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
@@ -747,12 +764,17 @@ type WorkflowType = MikeWorkflow["type"];
 export async function listWorkflows(
     type: WorkflowType,
 ): Promise<MikeWorkflow[]> {
-    const data = await apiRequest<{ workflows: MikeWorkflow[] } | MikeWorkflow[]>(`/workflow?type=${type}`);
-    return Array.isArray(data) ? data : (data as { workflows: MikeWorkflow[] }).workflows ?? [];
+    // Backend wraps in `{ workflows: [...] }`; tolerate both shapes
+    // (see `listProjects` / `listChats` for the same pattern + bug
+    // history).
+    const data = await apiRequest<
+        { workflows: MikeWorkflow[] } | MikeWorkflow[]
+    >(`/workflows?type=${type}`);
+    return Array.isArray(data) ? data : data.workflows ?? [];
 }
 
 export async function getWorkflow(workflowId: string): Promise<MikeWorkflow> {
-    return apiRequest<MikeWorkflow>(`/workflow/${workflowId}`);
+    return apiRequest<MikeWorkflow>(`/workflows/${workflowId}`);
 }
 
 export async function createWorkflow(payload: {
@@ -762,7 +784,7 @@ export async function createWorkflow(payload: {
     columns_config?: { index: number; name: string; prompt: string }[];
     practice?: string | null;
 }): Promise<MikeWorkflow> {
-    return apiRequest<MikeWorkflow>("/workflow", {
+    return apiRequest<MikeWorkflow>("/workflows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -778,7 +800,7 @@ export async function updateWorkflow(
         practice?: string | null;
     },
 ): Promise<MikeWorkflow> {
-    return apiRequest<MikeWorkflow>(`/workflow/${workflowId}`, {
+    return apiRequest<MikeWorkflow>(`/workflows/${workflowId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -786,15 +808,15 @@ export async function updateWorkflow(
 }
 
 export async function deleteWorkflow(workflowId: string): Promise<void> {
-    await apiRequest(`/workflow/${workflowId}`, { method: "DELETE" });
+    await apiRequest(`/workflows/${workflowId}`, { method: "DELETE" });
 }
 
 export async function listHiddenWorkflows(): Promise<string[]> {
-    return apiRequest<string[]>("/workflow/hidden");
+    return apiRequest<string[]>("/workflows/hidden");
 }
 
 export async function hideWorkflow(workflowId: string): Promise<void> {
-    await apiRequest("/workflow/hidden", {
+    await apiRequest("/workflows/hidden", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workflow_id: workflowId }),
@@ -802,7 +824,7 @@ export async function hideWorkflow(workflowId: string): Promise<void> {
 }
 
 export async function unhideWorkflow(workflowId: string): Promise<void> {
-    await apiRequest(`/workflow/hidden/${workflowId}`, { method: "DELETE" });
+    await apiRequest(`/workflows/hidden/${workflowId}`, { method: "DELETE" });
 }
 
 export async function shareWorkflow(

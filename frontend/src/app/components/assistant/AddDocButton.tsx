@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useTranslations } from "next-intl";
 import { PlusIcon, Upload, LayoutGridIcon, Loader2Icon } from "lucide-react";
 import {
     DropdownMenu,
@@ -11,7 +10,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { uploadStandaloneDocument } from "@/app/lib/mikeApi";
 import type { MikeDocument } from "../shared/types";
-import { DocumentSupportNotice } from "../shared/DocumentSupportNotice";
 
 interface Props {
     onSelectDoc: (doc: MikeDocument) => void;
@@ -20,7 +18,6 @@ interface Props {
 }
 
 export function AddDocButton({ onSelectDoc, onBrowseAll, selectedDocIds = [] }: Props) {
-    const tA = useTranslations("Assistant");
     const [isOpen, setIsOpen] = useState(false);
     const [uploading, setUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -31,7 +28,7 @@ export function AddDocButton({ onSelectDoc, onBrowseAll, selectedDocIds = [] }: 
         setUploading(true);
         try {
             const uploaded = await Promise.all(
-                files.map((f) => uploadStandaloneDocument(f, { cache: true })),
+                files.map((f) => uploadStandaloneDocument(f)),
             );
             uploaded.forEach((doc) => onSelectDoc(doc));
         } catch (err) {
@@ -47,7 +44,7 @@ export function AddDocButton({ onSelectDoc, onBrowseAll, selectedDocIds = [] }: 
             <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.docx,.doc,.rtf,.xlsx,.xls,.xlsb,.ods,.csv,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff"
+                accept=".pdf,.docx,.doc"
                 multiple
                 className="hidden"
                 onChange={handleUpload}
@@ -60,8 +57,8 @@ export function AddDocButton({ onSelectDoc, onBrowseAll, selectedDocIds = [] }: 
                                 ? "text-black hover:bg-gray-100"
                                 : "text-gray-400 hover:text-gray-700 hover:bg-gray-100"
                         } ${isOpen ? "bg-gray-100" : ""}`}
-                        title={tA("addDocuments")}
-                        aria-label={tA("addDocuments")}
+                        title="Add documents"
+                        aria-label="Add documents"
                     >
                         {selectedDocIds.length > 0 ? (
                             <span className="font-medium tabular-nums">{selectedDocIds.length}</span>
@@ -72,13 +69,13 @@ export function AddDocButton({ onSelectDoc, onBrowseAll, selectedDocIds = [] }: 
                         )}
                         <span className="hidden sm:inline">
                             {selectedDocIds.length === 1
-                                ? tA("documentSingular")
-                                : tA("documentsPlural")}
+                                ? "Document"
+                                : "Documents"}
                         </span>
                     </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
-                    className="w-72 z-50"
+                    className="w-44 z-50"
                     side="bottom"
                     align="start"
                 >
@@ -96,7 +93,7 @@ export function AddDocButton({ onSelectDoc, onBrowseAll, selectedDocIds = [] }: 
                             <Upload className="h-4 w-4 mr-2 text-gray-500" />
                         )}
                         <span className="text-sm">
-                            {uploading ? tA("uploadingFiles") : tA("uploadFiles")}
+                            {uploading ? "Uploading…" : "Upload files"}
                         </span>
                     </DropdownMenuItem>
                     <DropdownMenuItem
@@ -104,11 +101,8 @@ export function AddDocButton({ onSelectDoc, onBrowseAll, selectedDocIds = [] }: 
                         onClick={onBrowseAll}
                     >
                         <LayoutGridIcon className="h-4 w-4 mr-2 text-gray-500" />
-                        <span className="text-sm">{tA("browseAll")}</span>
+                        <span className="text-sm">Browse all</span>
                     </DropdownMenuItem>
-                    <div className="px-2 pt-1 pb-2">
-                        <DocumentSupportNotice compact />
-                    </div>
                 </DropdownMenuContent>
             </DropdownMenu>
         </>

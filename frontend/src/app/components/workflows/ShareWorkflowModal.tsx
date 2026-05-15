@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import {
@@ -29,8 +28,6 @@ export function ShareWorkflowModal({
     workflowName,
     onClose,
 }: Props) {
-    const t = useTranslations("WorkflowSharing");
-    const tCommon = useTranslations("Common");
     const [pendingEmails, setPendingEmails] = useState<string[]>([]);
     const [allowEdit, setAllowEdit] = useState(false);
     const [existingShares, setExistingShares] = useState<Share[]>([]);
@@ -76,7 +73,7 @@ export function ShareWorkflowModal({
                             {workflowName}
                         </span>
                         <span>›</span>
-                        <span>{t("people")}</span>
+                        <span>People</span>
                     </div>
                     <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
                         <X className="h-4 w-4" />
@@ -87,13 +84,13 @@ export function ShareWorkflowModal({
                     <EmailPillInput
                         emails={pendingEmails}
                         onChange={setPendingEmails}
-                        placeholder={t("addByEmail")}
+                        placeholder="Add people by email…"
                         autoFocus
                     />
 
                     {/* Permission toggle */}
                     <div className="flex flex-col gap-2">
-                        <span className="text-xs font-medium text-gray-700">{t("allowEditing")}</span>
+                        <span className="text-xs font-medium text-gray-700">Allow editing by share recipients</span>
                         <button
                             type="button"
                             onClick={() => setAllowEdit((v) => !v)}
@@ -105,7 +102,7 @@ export function ShareWorkflowModal({
 
                     {/* Existing access */}
                     <div>
-                        <p className="text-xs font-medium text-gray-700 mb-2">{t("peopleWithAccess")}</p>
+                        <p className="text-xs font-medium text-gray-700 mb-2">People with access</p>
                         {loading ? (
                             <div className="space-y-2">
                                 {[1, 2].map((i) => (
@@ -116,14 +113,14 @@ export function ShareWorkflowModal({
                                 ))}
                             </div>
                         ) : existingShares.length === 0 ? (
-                            <p className="text-sm text-gray-400">{t("none")}</p>
+                            <p className="text-sm text-gray-400">None</p>
                         ) : (
                             <div className="space-y-1">
                                 {existingShares.map((share) => (
                                     <div key={share.id} className="flex items-center justify-between py-1">
                                         <span className="text-sm text-gray-700 truncate">{share.shared_with_email}</span>
                                         <div className="flex items-center gap-3 shrink-0">
-                                            <span className="text-xs text-gray-400">{share.allow_edit ? t("canEdit") : t("readOnly")}</span>
+                                            <span className="text-xs text-gray-400">{share.allow_edit ? "Can edit" : "Read-only"}</span>
                                             <button
                                                 onClick={() => handleRemoveShare(share.id)}
                                                 className="text-gray-300 hover:text-red-500 transition-colors"
@@ -144,14 +141,14 @@ export function ShareWorkflowModal({
                         onClick={onClose}
                         className="rounded-lg px-5 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors"
                     >
-                        {tCommon("cancel")}
+                        Cancel
                     </button>
                     <button
                         onClick={handleConfirm}
                         disabled={saving || pendingEmails.length === 0}
                         className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
                     >
-                        {saving ? t("sharing") : t("share")}
+                        {saving ? "Sharing…" : "Share"}
                     </button>
                 </div>
             </div>

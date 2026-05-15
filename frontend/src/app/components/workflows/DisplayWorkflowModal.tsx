@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
 import { createPortal } from "react-dom";
 import {
     ChevronDown,
@@ -57,7 +56,6 @@ function SimpleProjectPicker({
     selectedId: string | null;
     onSelect: (id: string | null) => void;
 }) {
-    const tProj = useTranslations("Projects");
     const [search, setSearch] = useState("");
     const [open, setOpen] = useState(false);
     const selected = projects.find((p) => p.id === selectedId);
@@ -79,7 +77,7 @@ function SimpleProjectPicker({
                 }}
                 onFocus={() => setOpen(true)}
                 onBlur={() => setTimeout(() => setOpen(false), 150)}
-                placeholder={tProj("selectProject")}
+                placeholder="Select a matter…"
                 className="w-full text-xs text-gray-700 placeholder:text-gray-400 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 outline-none"
             />
             {selectedId && (
@@ -97,7 +95,7 @@ function SimpleProjectPicker({
                 <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-sm overflow-y-auto max-h-40">
                     {filtered.length === 0 ? (
                         <p className="px-3 py-3 text-xs text-gray-400 text-center">
-                            {tProj("noProjects")}
+                            No matters found
                         </p>
                     ) : (
                         filtered.map((p) => (
@@ -175,17 +173,16 @@ function MarkdownBody({ content }: { content: string }) {
 // Right panel for assistant workflows (select screen)
 // ---------------------------------------------------------------------------
 function AssistantPanel({ workflow }: { workflow: MikeWorkflow }) {
-    const tA = useTranslations("Assistant");
     return (
         <div className="flex-1 border-l border-t border-gray-200 flex flex-col overflow-hidden px-3 pb-3">
             <div className="py-3 shrink-0">
                 <p className="text-xs font-medium text-gray-700">
-                    {tA("workflowPrompt")}
+                    Workflow Prompt
                 </p>
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-3 text-sm border border-gray-200 rounded-md text-gray-600 leading-relaxed font-serif bg-gray-50">
                 <MarkdownBody
-                    content={workflow.prompt_md ?? tA("noPromptDefined")}
+                    content={workflow.prompt_md ?? "_No prompt defined._"}
                 />
             </div>
         </div>
@@ -196,8 +193,6 @@ function AssistantPanel({ workflow }: { workflow: MikeWorkflow }) {
 // Right panel for tabular workflows — accordion column list (select screen)
 // ---------------------------------------------------------------------------
 function TabularPanel({ workflow }: { workflow: MikeWorkflow }) {
-    const tA = useTranslations("Assistant");
-    const tWfCol = useTranslations("WorkflowColumns");
     const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
     const columns = (workflow.columns_config ?? []).sort(
         (a, b) => a.index - b.index,
@@ -206,12 +201,12 @@ function TabularPanel({ workflow }: { workflow: MikeWorkflow }) {
     return (
         <div className="flex-1 border-l border-t border-gray-200 flex flex-col overflow-hidden px-3 pb-3">
             <div className="py-3 shrink-0">
-                <p className="text-xs font-medium text-gray-700">{tWfCol("columnsHeader")}</p>
+                <p className="text-xs font-medium text-gray-700">Columns</p>
             </div>
             <div className="flex-1 overflow-y-auto border border-gray-200 rounded-md bg-gray-50">
                 {columns.length === 0 ? (
                     <p className="px-4 py-6 text-xs text-center text-gray-400">
-                        {tWfCol("noColumns")}
+                        No columns defined
                     </p>
                 ) : (
                     columns.map((col) => {
@@ -247,7 +242,7 @@ function TabularPanel({ workflow }: { workflow: MikeWorkflow }) {
                                         {col.tags && col.tags.length > 0 && (
                                             <div>
                                                 <p className="text-xs font-medium text-gray-400 mb-1.5 font-sans">
-                                                    {tWfCol("tags")}
+                                                    Tags
                                                 </p>
                                                 <div className="flex flex-wrap gap-1.5">
                                                     {col.tags.map((tag) => (
@@ -263,12 +258,12 @@ function TabularPanel({ workflow }: { workflow: MikeWorkflow }) {
                                         )}
                                         <div>
                                             <p className="text-xs font-medium text-gray-400 mb-1 font-sans">
-                                                {tWfCol("prompt")}
+                                                Prompt
                                             </p>
                                             <MarkdownBody
                                                 content={
                                                     col.prompt ||
-                                                    tA("noPromptDefined")
+                                                    "_No prompt defined._"
                                                 }
                                             />
                                         </div>
@@ -287,9 +282,6 @@ function TabularPanel({ workflow }: { workflow: MikeWorkflow }) {
 // DisplayWorkflowModal
 // ---------------------------------------------------------------------------
 export function DisplayWorkflowModal({ workflows, workflow, onClose }: Props) {
-    const tA = useTranslations("Assistant");
-    const tWfCol = useTranslations("WorkflowColumns");
-    const tProj = useTranslations("Projects");
     const [screen, setScreen] = useState<"select" | "configure">("select");
     const [selected, setSelected] = useState<MikeWorkflow | null>(workflow);
     const [listSearch, setListSearch] = useState("");
@@ -607,7 +599,7 @@ export function DisplayWorkflowModal({ workflows, workflow, onClose }: Props) {
                             {/* Toggle row */}
                             <div className="px-5 py-3 flex flex-col gap-2 shrink-0">
                                 <span className="text-xs font-medium text-gray-700">
-                                    Create in a project
+                                    Create in a matter
                                 </span>
                                 <Toggle
                                     on={inProject}
@@ -718,7 +710,7 @@ export function DisplayWorkflowModal({ workflows, workflow, onClose }: Props) {
                             {/* Toggle stacked */}
                             <div className="px-5 pb-3 flex flex-col gap-2 shrink-0">
                                 <span className="text-xs font-medium text-gray-700">
-                                    Create in a project
+                                    Create in a matter
                                 </span>
                                 <Toggle
                                     on={inProject}
@@ -736,7 +728,7 @@ export function DisplayWorkflowModal({ workflows, workflow, onClose }: Props) {
                                 <>
                                     <div className="px-5 pt-1 pb-1 shrink-0">
                                         <p className="text-xs font-medium text-gray-700">
-                                            Select Project
+                                            Select Matter
                                         </p>
                                     </div>
                                     <div className="px-5 pb-2 shrink-0">
@@ -806,7 +798,7 @@ export function DisplayWorkflowModal({ workflows, workflow, onClose }: Props) {
                                         q
                                             ? "No matches found"
                                             : inProject
-                                              ? "No documents in this project"
+                                              ? "No documents in this matter"
                                               : "No documents yet"
                                     }
                                 />

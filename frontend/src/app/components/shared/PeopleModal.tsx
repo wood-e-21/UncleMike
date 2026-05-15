@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
 import { createPortal } from "react-dom";
 import { X, User, UserPlus, Loader2, Plus } from "lucide-react";
 import type { ProjectPeople } from "@/app/lib/mikeApi";
@@ -58,7 +57,6 @@ export function PeopleModal({
     breadcrumb,
     onSharedWithChange,
 }: Props) {
-    const t = useTranslations("People");
     const [newEmail, setNewEmail] = useState("");
     const [busy, setBusy] = useState<"add" | "remove" | null>(null);
     const [removingEmail, setRemovingEmail] = useState<string | null>(null);
@@ -216,7 +214,7 @@ export function PeopleModal({
                                 <UserPlus className="h-3.5 w-3.5 text-gray-400 shrink-0" />
                                 <input
                                     type="email"
-                                    placeholder={t("addByEmail")}
+                                    placeholder="Add by email…"
                                     value={newEmail}
                                     onChange={(e) =>
                                         setNewEmail(e.target.value)
@@ -231,7 +229,7 @@ export function PeopleModal({
                             <button
                                 onClick={() => void handleAdd()}
                                 disabled={!canAdd}
-                                title={t("addMember")}
+                                title="Add member"
                                 className="inline-flex items-center justify-center rounded-lg border border-gray-900 bg-gray-900 p-2 text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {busy === "add" ? (
@@ -243,12 +241,12 @@ export function PeopleModal({
                         </div>
                         {alreadyShared && trimmedNewEmail && (
                             <p className="mt-1.5 text-xs text-gray-400">
-                                {t("alreadyHasAccess", { email: trimmedNewEmail })}
+                                {trimmedNewEmail} already has access.
                             </p>
                         )}
                         {isOwnerEmail && trimmedNewEmail && (
                             <p className="mt-1.5 text-xs text-gray-400">
-                                {t("isTheOwner", { email: trimmedNewEmail })}
+                                {trimmedNewEmail} is the owner.
                             </p>
                         )}
                         {trimmedNewEmail &&
@@ -316,7 +314,7 @@ export function PeopleModal({
                                                 )}
                                                 {entry.role === "owner" && (
                                                     <span className="ml-1.5 text-[10px] text-gray-400">
-                                                        {t("owner")}
+                                                        Owner
                                                     </span>
                                                 )}
                                             </p>
@@ -335,7 +333,7 @@ export function PeopleModal({
                                                         )
                                                     }
                                                     disabled={busy !== null}
-                                                    title={t("removeAccess")}
+                                                    title="Remove access"
                                                     className="self-center inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
                                                 >
                                                     {isRemoving && (

@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useTranslations } from "next-intl";
 import { Download, Loader2 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { getApiBase } from "@/app/lib/mikeApi";
 import { applyOptimisticResolution } from "../assistant/EditCard";
 import { DocView } from "./DocView";
 import { DocxView } from "./DocxView";
@@ -17,8 +18,7 @@ import type {
     MikeEditAnnotation,
 } from "./types";
 
-function isDocxFilename(name: string | null | undefined): boolean {
-    if (!name || typeof name !== "string") return false;
+function isDocxFilename(name: string): boolean {
     const ext = name.split(".").pop()?.toLowerCase();
     return ext === "docx" || ext === "doc";
 }
@@ -67,14 +67,6 @@ interface Props {
     versionId: string | null;
     versionNumber: number | null;
     mode: DocPanelMode;
-    /**
-     * KB-indexed file path. When set, the underlying fetchers go through
-     * `/sync/kb-doc?path=<kbPath>` instead of the upload-flow endpoints.
-     * Used by RAG citation tabs — see `ChatView.openCitation`.
-     * `documentId` is still required as a stable React key but is
-     * effectively ignored by the network layer.
-     */
-    kbPath?: string | null;
     /** Spinner on the Download button while an accept/reject is in flight. */
     isReloading?: boolean;
     warning?: string | null;
@@ -95,7 +87,6 @@ export function DocPanel({
     versionId,
     versionNumber,
     mode,
-    kbPath,
     isReloading = false,
     warning,
     onWarningDismiss,
@@ -133,7 +124,6 @@ export function DocPanel({
                     documentId={documentId}
                     versionId={versionId}
                     filename={filename}
-                    kbPath={kbPath ?? null}
                     isReloading={isReloading}
                 />
             ) : mode.kind === "edit" ? (
@@ -160,7 +150,6 @@ export function DocPanel({
                         documentId={documentId}
                         versionId={versionId}
                         filename={filename}
-                        kbPath={kbPath ?? undefined}
                         isReloading={isReloading}
                     />
                 </div>
@@ -170,7 +159,6 @@ export function DocPanel({
                 <DocxView
                     documentId={documentId}
                     versionId={versionId ?? undefined}
-                    kbPath={kbPath ?? undefined}
                     quotes={quotes}
                     highlightEdit={highlightEdit}
                     warning={warning ?? null}
@@ -184,7 +172,6 @@ export function DocPanel({
                         document_id: documentId,
                         version_id: versionId,
                     }}
-                    kbPath={kbPath ?? undefined}
                     quotes={quotes}
                 />
             )}
@@ -205,29 +192,25 @@ function CitationHeader({
     documentId,
     versionId,
     filename,
-    kbPath,
     isReloading,
 }: {
     citation: MikeCitationAnnotation;
     documentId: string;
     versionId: string | null;
     filename: string;
-    kbPath?: string | null;
     isReloading: boolean;
 }) {
-    const tDV = useTranslations("DocViewer");
     const displayQuote = displayCitationQuote(citation);
     const pagesLabel = formatCitationPage(citation);
     return (
         <div className="pt-2 pb-3">
             <div className="flex items-center gap-2 mb-2">
-                <SectionLabel>{tDV("citation")}</SectionLabel>
+                <SectionLabel>Citation</SectionLabel>
                 <div className="ml-auto shrink-0">
                     <DownloadButton
                         documentId={documentId}
                         versionId={versionId}
                         filename={filename}
-                        kbPath={kbPath ?? undefined}
                         isReloading={isReloading}
                     />
                 </div>
@@ -259,12 +242,11 @@ function TrackedChangeHeader({
     filename: string;
     isReloading: boolean;
 }) {
-    const tDV = useTranslations("DocViewer");
     const { edit, isEditReloading, onResolveStart, onResolved, onError } = mode;
     return (
         <div className="pt-2 pb-3">
             <div className="flex items-center gap-2 mb-2">
-                <SectionLabel>{tDV("trackedChange")}</SectionLabel>
+                <SectionLabel>Tracked Change</SectionLabel>
                 <div className="ml-auto flex items-center gap-2 shrink-0">
                     <EditResolveButtons
                         edit={edit}
@@ -374,10 +356,11 @@ function EditResolveButtons({
                 );
             }
             try {
-                                const token = typeof window !== "undefined" ? localStorage.getItem("mike_auth_token") : null;
-                const apiBase =
-                    process.env.NEXT_PUBLIC_API_BASE_URL ??
-                    "http://localhost:3001";
+                const {
+                    data: { session },
+                } = await supabase.auth.getSession();
+                const token = session?.access_token;
+                const apiBase = await getApiBase();
                 const resp = await fetch(
                     `${apiBase}/single-documents/${edit.document_id}/edits/${edit.edit_id}/${verb}`,
                     {
@@ -460,14 +443,11 @@ function DownloadButton({
     documentId,
     versionId,
     filename,
-    kbPath,
     isReloading,
 }: {
     documentId: string;
     versionId: string | null;
     filename: string;
-    /** When set, download via /sync/kb-doc instead of the upload flow. */
-    kbPath?: string | null;
     isReloading?: boolean;
 }) {
     const [busy, setBusy] = useState(false);
@@ -476,20 +456,20 @@ function DownloadButton({
         if (busy || isReloading) return;
         setBusy(true);
         try {
-                        const token = typeof window !== "undefined" ? localStorage.getItem("mike_auth_token") : null;
-            const apiBase =
-                process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
-            const url = kbPath
-                ? `${apiBase}/sync/kb-doc?path=${encodeURIComponent(kbPath)}`
-                : (() => {
-                      const qs = versionId
-                          ? `?version_id=${encodeURIComponent(versionId)}`
-                          : "";
-                      return `${apiBase}/single-documents/${documentId}/docx${qs}`;
-                  })();
-            const resp = await fetch(url, {
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
-            });
+            const {
+                data: { session },
+            } = await supabase.auth.getSession();
+            const token = session?.access_token;
+            const apiBase = await getApiBase();
+            const qs = versionId
+                ? `?version_id=${encodeURIComponent(versionId)}`
+                : "";
+            const resp = await fetch(
+                `${apiBase}/single-documents/${documentId}/docx${qs}`,
+                {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                },
+            );
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const blob = await resp.blob();
             const blobUrl = URL.createObjectURL(blob);

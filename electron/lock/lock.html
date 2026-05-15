@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Mike — Unlock</title>
+    <link rel="stylesheet" href="lock.css" />
+  </head>
+  <body>
+    <main class="card" id="card" hidden>
+      <h1 id="title">Mike</h1>
+      <p class="subtitle" id="subtitle"></p>
+
+      <section id="workspaceSection" hidden>
+        <p class="hint">
+          Pick a folder where Mike will store your documents, database, and
+          settings. You can change this later.
+        </p>
+        <div class="row">
+          <button id="pickBtn" class="primary">Choose workspace…</button>
+        </div>
+        <p class="workspacePath" id="workspacePath"></p>
+      </section>
+
+      <section id="setPasswordSection" hidden>
+        <p class="hint">
+          Set a PIN. You'll enter it each time you open Mike. Keep it
+          somewhere safe — it can't be recovered.
+        </p>
+        <input
+          type="password"
+          id="newPassword"
+          placeholder="New PIN (4-8 digits)"
+          autocomplete="new-password"
+        />
+        <input
+          type="password"
+          id="newPasswordConfirm"
+          placeholder="Confirm PIN"
+          autocomplete="new-password"
+        />
+        <div class="row">
+          <button id="setPasswordBtn" class="primary">Set PIN</button>
+        </div>
+      </section>
+
+      <section id="unlockSection" hidden>
+        <p class="hint" id="workspaceLabel"></p>
+        <input
+          type="password"
+          id="password"
+          placeholder="PIN"
+          autocomplete="current-password"
+          autofocus
+        />
+        <div class="row">
+          <button id="unlockBtn" class="primary">Unlock</button>
+        </div>
+      </section>
+
+      <p class="status" id="status" hidden>
+        <span class="spinner"></span>
+        <span id="statusText">Starting Mike…</span>
+      </p>
+      <p class="error" id="error"></p>
+    </main>
+    <script src="lock.js"></script>
+  </body>
+</html>

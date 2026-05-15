@@ -2,274 +2,263 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LogOut, Check, Fingerprint, KeyRound, ShieldCheck } from "lucide-react";
+import { LogOut, Check } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/contexts/UserProfileContext";
-import { LanguageSwitcher } from "@/app/components/shared/LanguageSwitcher";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
-
-function getToken() {
-    return typeof window !== "undefined"
-        ? localStorage.getItem("mike_auth_token") ?? ""
-        : "";
-}
+import { deleteAccount } from "@/app/lib/mikeApi";
+import { useCapabilities } from "@/app/hooks/useCapabilities";
 
 export default function AccountPage() {
     const router = useRouter();
     const { user, signOut } = useAuth();
-    const { profile, updateDisplayName } = useUserProfile();
-    const t = useTranslations("Account");
-    const tCommon = useTranslations("Common");
-
-    // Profile
+    const { profile, updateDisplayName, updateOrganisation } = useUserProfile();
+    const { capabilities } = useCapabilities();
     const [displayName, setDisplayName] = useState("");
     const [isSavingName, setIsSavingName] = useState(false);
-    const [nameSaved, setNameSaved] = useState(false);
-
-    // PIN change
-    const [currentPin, setCurrentPin] = useState("");
-    const [newPin, setNewPin] = useState("");
-    const [confirmPin, setConfirmPin] = useState("");
-    const [pinLoading, setPinLoading] = useState(false);
-    const [pinMsg, setPinMsg] = useState<{ ok: boolean; text: string } | null>(null);
-
-    // Biometric
-    const [bioAvailable, setBioAvailable] = useState(false);
-    const [bioEnabled, setBioEnabled] = useState(false);
-    const [bioLoading, setBioLoading] = useState(false);
-    const [bioMsg, setBioMsg] = useState<{ ok: boolean; text: string } | null>(null);
+    const [saved, setSaved] = useState(false);
+    const [organisation, setOrganisation] = useState("");
+    const [isSavingOrg, setIsSavingOrg] = useState(false);
+    const [orgSaved, setOrgSaved] = useState(false);
+    const [deleteConfirm, setDeleteConfirm] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     useEffect(() => {
-        if (profile?.displayName) setDisplayName(profile.displayName);
+        if (profile?.displayName) {
+            setDisplayName(profile.displayName);
+        }
+        if (profile?.organisation) {
+            setOrganisation(profile.organisation);
+        }
     }, [profile]);
 
-    useEffect(() => {
-        fetch(`${API_BASE}/auth/biometric-available`)
-            .then((r) => r.json())
-            .then((d) => {
-                setBioAvailable(d.available ?? false);
-                setBioEnabled(d.enabled ?? false);
-            })
-            .catch(() => {});
-    }, []);
-
-    const handleSaveName = async () => {
-        setIsSavingName(true);
-        await updateDisplayName(displayName.trim());
-        setIsSavingName(false);
-        setNameSaved(true);
-        setTimeout(() => setNameSaved(false), 2000);
-    };
-
-    const handleChangePin = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setPinMsg(null);
-        if (newPin.length < 4) {
-            setPinMsg({ ok: false, text: t("errorPinTooShort") });
-            return;
-        }
-        if (newPin !== confirmPin) {
-            setPinMsg({ ok: false, text: t("errorPinMismatch") });
-            return;
-        }
-        setPinLoading(true);
-        try {
-            const res = await fetch(`${API_BASE}/auth/change-pin`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${getToken()}`,
-                },
-                body: JSON.stringify({ current_pin: currentPin, new_pin: newPin }),
-            });
-            const text = await res.text();
-            const data = text ? JSON.parse(text) : {};
-            if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
-            setPinMsg({ ok: true, text: t("savedPin") });
-            setCurrentPin(""); setNewPin(""); setConfirmPin("");
-        } catch (err) {
-            setPinMsg({ ok: false, text: err instanceof Error ? err.message : t("errorWrongPin") });
-        } finally {
-            setPinLoading(false);
-        }
-    };
-
-    const handleToggleBiometric = async () => {
-        setBioLoading(true);
-        setBioMsg(null);
-        const endpoint = bioEnabled
-            ? `${API_BASE}/auth/biometric-disable`
-            : `${API_BASE}/auth/biometric-enable`;
-        try {
-            const res = await fetch(endpoint, {
-                method: "POST",
-                headers: { Authorization: `Bearer ${getToken()}` },
-            });
-            const text = await res.text();
-            const data = text ? JSON.parse(text) : {};
-            if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
-            setBioEnabled(!bioEnabled);
-            setBioMsg({ ok: true, text: bioEnabled ? t("biometricDisabled") : t("biometricEnabled") });
-        } catch (err) {
-            setBioMsg({ ok: false, text: err instanceof Error ? err.message : tCommon("error") });
-        } finally {
-            setBioLoading(false);
-        }
-    };
-
     const handleLogout = async () => {
-        const token = getToken();
-        if (token) {
-            await fetch(`${API_BASE}/auth/logout`, {
-                method: "POST",
-                headers: { Authorization: `Bearer ${token}` },
-            }).catch(() => {});
-        }
         await signOut();
-        router.push("/login");
+        router.push("/");
+    };
+
+    const handleDeleteAccount = async () => {
+        setIsDeleting(true);
+        try {
+            await deleteAccount();
+            await signOut();
+            router.push("/");
+        } catch {
+            setIsDeleting(false);
+            setDeleteConfirm(false);
+            alert("Failed to delete account. Please try again.");
+        }
+    };
+
+    const handleSaveDisplayName = async () => {
+        setIsSavingName(true);
+        const success = await updateDisplayName(displayName.trim());
+        setIsSavingName(false);
+
+        if (success) {
+            setSaved(true);
+            setTimeout(() => setSaved(false), 2000);
+        } else {
+            alert("Failed to update display name. Please try again.");
+        }
+    };
+
+    const handleSaveOrganisation = async () => {
+        setIsSavingOrg(true);
+        const success = await updateOrganisation(organisation.trim());
+        setIsSavingOrg(false);
+
+        if (success) {
+            setOrgSaved(true);
+            setTimeout(() => setOrgSaved(false), 2000);
+        } else {
+            alert("Failed to update organisation. Please try again.");
+        }
     };
 
     if (!user) return null;
 
-    const isMac = typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
-    const bioLabel = isMac ? t("touchId") : t("windowsHello");
-
     return (
-        <div className="space-y-8">
-            {/* Profile */}
-            <section>
-                <h2 className="text-2xl font-medium font-serif mb-4">{t("profile")}</h2>
-                <div className="space-y-4 max-w-md">
+        <div className="space-y-4">
+            {/* Profile Settings */}
+            <div className="pb-6">
+                <div className="flex items-center gap-2 mb-4">
+                    <h2 className="text-2xl font-medium font-serif">Profile</h2>
+                </div>
+                <div className="space-y-4">
                     <div>
-                        <label className="text-sm text-gray-600 block mb-2">{t("username")}</label>
-                        <p className="text-base font-medium">{user.username ?? user.email}</p>
-                    </div>
-                    <div>
-                        <label className="text-sm text-gray-600 block mb-2">{t("displayName")}</label>
+                        <label className="text-sm text-gray-600 block mb-2">
+                            Display Name
+                        </label>
                         <div className="flex gap-2">
                             <Input
                                 type="text"
                                 value={displayName}
                                 onChange={(e) => setDisplayName(e.target.value)}
-                                placeholder={t("displayNamePlaceholder")}
+                                placeholder="Enter your name"
                                 className="flex-1"
                             />
                             <Button
-                                onClick={handleSaveName}
-                                disabled={isSavingName || !displayName.trim() || nameSaved}
-                                className="min-w-[80px] bg-black hover:bg-gray-900 text-white"
+                                onClick={handleSaveDisplayName}
+                                disabled={
+                                    isSavingName || !displayName.trim() || saved
+                                }
+                                className="min-w-[80px] transition-all bg-black hover:bg-gray-900 text-white"
                             >
-                                {isSavingName ? tCommon("saving") : nameSaved ? <><Check className="h-4 w-3 mr-1" />{tCommon("save")}</> : tCommon("save")}
+                                {isSavingName ? (
+                                    "Saving..."
+                                ) : saved ? (
+                                    <>
+                                        <Check className="h-4 w-3" />
+                                        Saved
+                                    </>
+                                ) : (
+                                    "Save"
+                                )}
                             </Button>
                         </div>
                     </div>
                     <div>
-                        <LanguageSwitcher />
-                    </div>
-                </div>
-            </section>
-
-            {/* Change PIN */}
-            <section>
-                <div className="flex items-center gap-2 mb-4">
-                    <KeyRound className="h-5 w-5 text-gray-500" />
-                    <h2 className="text-2xl font-medium font-serif">{t("changePin")}</h2>
-                </div>
-                <form onSubmit={handleChangePin} className="space-y-3 max-w-sm">
-                    <div>
-                        <label className="text-sm text-gray-600 block mb-1">{t("currentPin")}</label>
-                        <Input
-                            type="password"
-                            inputMode="numeric"
-                            maxLength={8}
-                            value={currentPin}
-                            onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ""))}
-                            placeholder={t("currentPin")}
-                            className="tracking-widest text-center"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label className="text-sm text-gray-600 block mb-1">{t("newPin")}</label>
-                        <Input
-                            type="password"
-                            inputMode="numeric"
-                            maxLength={8}
-                            value={newPin}
-                            onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))}
-                            placeholder={t("newPin")}
-                            className="tracking-widest text-center"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label className="text-sm text-gray-600 block mb-1">{t("confirmNewPin")}</label>
-                        <Input
-                            type="password"
-                            inputMode="numeric"
-                            maxLength={8}
-                            value={confirmPin}
-                            onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ""))}
-                            placeholder={t("confirmNewPin")}
-                            className="tracking-widest text-center"
-                            required
-                        />
-                    </div>
-                    {pinMsg && (
-                        <p className={`text-sm ${pinMsg.ok ? "text-green-600" : "text-red-600"}`}>
-                            {pinMsg.text}
-                        </p>
-                    )}
-                    <Button
-                        type="submit"
-                        disabled={pinLoading}
-                        className="bg-black hover:bg-gray-900 text-white"
-                    >
-                        {pinLoading ? tCommon("saving") : tCommon("save")}
-                    </Button>
-                </form>
-            </section>
-
-            {/* Biometric */}
-            {bioAvailable && (
-                <section>
-                    <div className="flex items-center gap-2 mb-4">
-                        <Fingerprint className="h-5 w-5 text-gray-500" />
-                        <h2 className="text-2xl font-medium font-serif">{bioLabel}</h2>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-full border ${bioEnabled ? "border-green-200 bg-green-50 text-green-700" : "border-gray-200 text-gray-500"}`}>
-                            <ShieldCheck className="h-4 w-4" />
-                            {bioEnabled ? t("biometricEnabled") : t("biometricDisabled")}
+                        <label className="text-sm text-gray-600 block mb-2">
+                            Organisation
+                        </label>
+                        <div className="flex gap-2">
+                            <Input
+                                type="text"
+                                value={organisation}
+                                onChange={(e) =>
+                                    setOrganisation(e.target.value)
+                                }
+                                placeholder="Enter your organisation"
+                                className="flex-1"
+                            />
+                            <Button
+                                onClick={handleSaveOrganisation}
+                                disabled={
+                                    isSavingOrg ||
+                                    organisation.trim() ===
+                                        (profile?.organisation ?? "") ||
+                                    orgSaved
+                                }
+                                className="min-w-[80px] transition-all bg-black hover:bg-gray-900 text-white"
+                            >
+                                {isSavingOrg ? (
+                                    "Saving..."
+                                ) : orgSaved ? (
+                                    <>
+                                        <Check className="h-4 w-3" />
+                                        Saved
+                                    </>
+                                ) : (
+                                    "Save"
+                                )}
+                            </Button>
                         </div>
-                        <Button
-                            variant="outline"
-                            onClick={handleToggleBiometric}
-                            disabled={bioLoading}
-                        >
-                            {bioLoading ? "…" : bioEnabled ? t("disableBiometric") : t("enableBiometric")}
-                        </Button>
                     </div>
-                    {bioMsg && (
-                        <p className={`text-sm mt-2 ${bioMsg.ok ? "text-green-600" : "text-red-600"}`}>
-                            {bioMsg.text}
+                    <div>
+                        <label className="text-sm text-gray-600 block mb-2">
+                            Email
+                        </label>
+                        <p className="text-base">{user?.email}</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* System */}
+            <div className="py-6">
+                <div className="flex items-center gap-2 mb-4">
+                    <h2 className="text-2xl font-medium font-serif">System</h2>
+                </div>
+                <div className="space-y-3 max-w-xl">
+                    <div>
+                        <p className="text-sm text-gray-600 mb-1">
+                            LibreOffice
+                            <span className="text-xs text-gray-400 ml-2">
+                                (used to convert Word documents to PDF for
+                                preview)
+                            </span>
                         </p>
-                    )}
-                </section>
-            )}
+                        {capabilities?.libreoffice.available ? (
+                            <p className="text-sm text-green-700">
+                                Installed
+                                {capabilities.libreoffice.version
+                                    ? ` — ${capabilities.libreoffice.version}`
+                                    : ""}
+                            </p>
+                        ) : capabilities ? (
+                            <p className="text-sm text-amber-700">
+                                Not detected. LibreOffice ships bundled with
+                                Mike — if this message persists, the install
+                                may be incomplete. Try reinstalling Mike.
+                                Word uploads still work for text, but PDF
+                                preview is unavailable.
+                            </p>
+                        ) : (
+                            <p className="text-sm text-gray-400">Checking…</p>
+                        )}
+                    </div>
+                </div>
+            </div>
 
             {/* Actions */}
-            <section className="pt-2">
-                <h2 className="text-2xl font-medium font-serif mb-4">{tCommon("actions")}</h2>
-                <Button variant="outline" onClick={handleLogout} className="w-full sm:w-auto">
+            <div className="py-6">
+                <h2 className="text-2xl font-medium font-serif mb-4">
+                    Actions
+                </h2>
+                <Button
+                    variant="outline"
+                    onClick={handleLogout}
+                    className="w-full sm:w-auto"
+                >
                     <LogOut className="h-4 w-4 mr-2" />
-                    {t("lockSignOut")}
+                    Sign Out
                 </Button>
-            </section>
+            </div>
+
+            {/* Danger Zone */}
+            <div className="py-6">
+                <h2 className="text-2xl font-medium font-serif mb-1 text-red-600">
+                    Danger Zone
+                </h2>
+                <p className="text-sm text-gray-500 mb-4">
+                    Permanently delete your account and all associated data.
+                    This action cannot be undone.
+                </p>
+                {deleteConfirm ? (
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-4 space-y-3 max-w-sm">
+                        <p className="text-sm font-medium text-red-700">
+                            Are you sure? This will permanently delete your
+                            account.
+                        </p>
+                        <div className="flex gap-2">
+                            <Button
+                                variant="outline"
+                                onClick={() => setDeleteConfirm(false)}
+                                disabled={isDeleting}
+                                className="text-sm"
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                onClick={handleDeleteAccount}
+                                disabled={isDeleting}
+                                className="text-sm bg-red-600 hover:bg-red-700 text-white"
+                            >
+                                {isDeleting ? "Deleting…" : "Delete Account"}
+                            </Button>
+                        </div>
+                    </div>
+                ) : (
+                    <Button
+                        variant="outline"
+                        onClick={() => setDeleteConfirm(true)}
+                        className="w-full sm:w-auto border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                    >
+                        Delete Account
+                    </Button>
+                )}
+            </div>
         </div>
     );
 }

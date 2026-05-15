@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AlertCircle, Expand } from "lucide-react";
@@ -58,7 +57,6 @@ function CellMarkdown({
     onExpand: () => void;
     inline?: boolean;
 }) {
-    const tT = useTranslations("Tabular");
     return (
         <ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -100,7 +98,7 @@ function CellMarkdown({
                         if (citation) {
                             return (
                                 <span
-                                    title={tT("citationTitle", { page: citation.page, quote: citation.quote })}
+                                    title={`Page ${citation.page}: "${citation.quote}"`}
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         if (onCitationClick) {
@@ -154,7 +152,6 @@ export function TabularCell({
     onExpand,
     onCitationClick,
 }: Props) {
-    const tT = useTranslations("Tabular");
     const [inlineExpanded, setInlineExpanded] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -261,7 +258,7 @@ export function TabularCell({
                             className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
                         >
                             <Expand className="h-3 w-3" />
-                            {tT("seeDetails")}
+                            See details
                         </button>
                     </div>
                 </div>

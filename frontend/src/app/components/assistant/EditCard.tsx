@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslations } from "next-intl";
+import { supabase } from "@/lib/supabase";
+import { getApiBase } from "@/app/lib/mikeApi";
 import type { MikeEditAnnotation } from "../shared/types";
 
 function normalizeText(s: string) {
@@ -19,13 +20,6 @@ function findMatch(
         const byId = container.querySelector(
             `${tag}[data-w-id="${opts.w_id}"]`,
         ) as HTMLElement | null;
-        console.log("[EditCard] findMatch by w_id", {
-            tag,
-            w_id: opts.w_id,
-            found: !!byId,
-            totalTagged: container.querySelectorAll(`${tag}[data-w-id]`).length,
-            totalAny: container.querySelectorAll(tag).length,
-        });
         if (byId) return byId;
     }
     const text = opts.text ?? "";
@@ -42,12 +36,6 @@ function findMatch(
             normalizeText(el.textContent ?? "").includes(target),
         ) ??
         null;
-    console.log("[EditCard] findMatch by text", {
-        tag,
-        target,
-        found: !!byText,
-        candidateCount: candidates.length,
-    });
     return byText;
 }
 
@@ -117,13 +105,6 @@ export function applyOptimisticResolution(
     const scrolls = document.querySelectorAll(
         `[data-document-id="${CSS.escape(annotation.document_id)}"]`,
     );
-    console.log("[EditCard] optimistic scrolls found:", scrolls.length, {
-        document_id: annotation.document_id,
-        ins_w_id: annotation.ins_w_id,
-        del_w_id: annotation.del_w_id,
-        inserted_text: annotation.inserted_text?.slice(0, 40),
-        deleted_text: annotation.deleted_text?.slice(0, 40),
-    });
     scrolls.forEach((scroll) => {
         const container = scroll.querySelector(".docx-view-container");
         if (!container) return;
@@ -210,7 +191,6 @@ export function EditCard({
     onResolved,
     onError,
 }: Props) {
-    const t = useTranslations("EditCard");
     const [busy, setBusy] = useState(false);
     const [localStatus, setLocalStatus] = useState<
         "pending" | "accepted" | "rejected"
@@ -241,9 +221,11 @@ export function EditCard({
             console.error("[EditCard] optimistic update threw", e);
         }
         try {
-                        const token = typeof window !== "undefined" ? localStorage.getItem("mike_auth_token") : null;
-            const apiBase =
-                process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+            const {
+                data: { session },
+            } = await supabase.auth.getSession();
+            const token = session?.access_token;
+            const apiBase = await getApiBase();
             const resp = await fetch(
                 `${apiBase}/single-documents/${annotation.document_id}/edits/${annotation.edit_id}/${verb}`,
                 {
@@ -284,8 +266,8 @@ export function EditCard({
                 versionId: annotation.version_id ?? null,
                 message:
                     verb === "accept"
-                        ? t("errorAccept")
-                        : t("errorReject"),
+                        ? "Couldn't save accept — reverted."
+                        : "Couldn't save reject — reverted.",
             });
         } finally {
             setBusy(false);
@@ -317,14 +299,14 @@ export function EditCard({
                     disabled={inFlight || resolved}
                     className="px-2 py-1 text-xs rounded border border-gray-900 bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-50"
                 >
-                    {status === "accepted" ? t("accepted") : t("accept")}
+                    {status === "accepted" ? "Accepted" : "Accept"}
                 </button>
                 <button
                     onClick={() => handle("reject")}
                     disabled={inFlight || resolved}
                     className="px-2 py-1 text-xs rounded border border-gray-200 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-50"
                 >
-                    {status === "rejected" ? t("rejected") : t("reject")}
+                    {status === "rejected" ? "Rejected" : "Reject"}
                 </button>
                 {onViewClick && (
                     <button
@@ -332,12 +314,12 @@ export function EditCard({
                         disabled={resolved}
                         title={
                             resolved
-                                ? t("alreadyResolved")
+                                ? "This change has been resolved and is no longer in the document."
                                 : undefined
                         }
                         className="ml-auto px-2 py-1 text-xs rounded border border-gray-200 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
                     >
-                        {t("view")}
+                        View
                     </button>
                 )}
             </div>

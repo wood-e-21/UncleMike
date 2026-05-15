@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
 import {
     FileText,
     File,
@@ -58,7 +57,6 @@ export function ProjectExplorer({
     onMoveDoc,
     onMoveFolder,
 }: Props) {
-    const tProj = useTranslations("Projects");
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
     const [creatingIn, setCreatingIn] = useState<string | null | undefined>(undefined);
@@ -186,7 +184,7 @@ export function ProjectExplorer({
                             ref={newFolderInputRef}
                             autoFocus
                             className="flex-1 min-w-0 text-xs bg-transparent outline-none border-b border-gray-300 text-gray-800"
-                            placeholder={tProj("folderName")}
+                            placeholder="Folder name"
                             value={newFolderName}
                             onChange={(e) => setNewFolderName(e.target.value)}
                             onKeyDown={(e) => {
@@ -355,7 +353,7 @@ export function ProjectExplorer({
 
             {/* Empty state */}
             {documents.length === 0 && folders.length === 0 && creatingIn === undefined && (
-                <li className="px-4 py-2 text-xs text-gray-400">No documents in this project.</li>
+                <li className="px-4 py-2 text-xs text-gray-400">No documents in this matter.</li>
             )}
 
             {/* Context menu */}

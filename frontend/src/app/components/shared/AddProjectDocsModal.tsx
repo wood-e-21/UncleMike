@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
 import { createPortal } from "react-dom";
 import { Check, Loader2, Search, Upload, X } from "lucide-react";
 import { getProject, uploadProjectDocument } from "@/app/lib/mikeApi";
 import type { MikeDocument } from "./types";
 import { DocFileIcon } from "./FileDirectory";
 import { VersionChip } from "./VersionChip";
-import { DocumentSupportNotice } from "./DocumentSupportNotice";
 
 interface Props {
     open: boolean;
@@ -39,7 +37,6 @@ export function AddProjectDocsModal({
     excludeDocIds,
     allowMultiple = true,
 }: Props) {
-    const tCommon = useTranslations("Common");
     const [docs, setDocs] = useState<MikeDocument[]>([]);
     const [loading, setLoading] = useState(false);
     const [search, setSearch] = useState("");
@@ -148,7 +145,7 @@ export function AddProjectDocsModal({
                         <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
                         <input
                             type="text"
-                            placeholder={tCommon("search")}
+                            placeholder="Search…"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             className="flex-1 bg-transparent text-sm text-gray-700 placeholder:text-gray-400 outline-none"
@@ -165,12 +162,8 @@ export function AddProjectDocsModal({
                     </div>
                 </div>
 
-                <div className="px-4 pt-2">
-                    <DocumentSupportNotice />
-                </div>
-
                 {/* File list */}
-                <div className="flex-1 overflow-y-auto px-4 pb-2 pt-2">
+                <div className="flex-1 overflow-y-auto px-4 pb-2">
                     {loading ? (
                         <div className="rounded-sm border border-gray-100 overflow-hidden">
                             {[60, 45, 75, 55, 40].map((w, i) => (
@@ -189,7 +182,7 @@ export function AddProjectDocsModal({
                         </div>
                     ) : filtered.length === 0 ? (
                         <p className="text-center text-sm text-gray-400 py-8">
-                            {q ? "No matches found" : "No documents in this project"}
+                            {q ? "No matches found" : "No documents in this matter"}
                         </p>
                     ) : (
                         <div className="rounded-sm border border-gray-100 overflow-hidden">
@@ -260,7 +253,7 @@ export function AddProjectDocsModal({
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept=".pdf,.docx,.doc,.rtf,.xlsx,.xls,.xlsb,.ods,.csv,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff"
+                            accept=".pdf,.docx,.doc"
                             multiple
                             className="hidden"
                             onChange={handleUpload}

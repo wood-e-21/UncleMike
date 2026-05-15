@@ -1,36 +1,31 @@
 "use client";
 
-import { useCallback } from "react";
-import { useUserProfile, type LLMConfig } from "@/contexts/UserProfileContext";
-import {
-    DEFAULT_MODEL_ID,
-    buildAvailableModelsFromConfig,
-} from "../components/assistant/ModelToggle";
+import { useCallback, useEffect, useState } from "react";
+import { ALLOWED_MODEL_IDS, DEFAULT_MODEL_ID } from "../components/assistant/ModelToggle";
 
-// Selected model is persisted in user_settings on the backend (via
-// UserProfileContext.setSelectedModel) — not in localStorage — so the
-// preference travels with the data folder. Fallback when nothing is
-// stored: the default model id.
-function pickInitial(llm: LLMConfig | undefined): string {
-    if (!llm) return DEFAULT_MODEL_ID;
-    const allowed = new Set(buildAvailableModelsFromConfig(llm).map((m) => m.id));
-    if (llm.selectedModel && allowed.has(llm.selectedModel)) {
-        return llm.selectedModel;
-    }
-    return allowed.size > 0 ? DEFAULT_MODEL_ID : (llm.selectedModel ?? DEFAULT_MODEL_ID);
+const STORAGE_KEY = "mike.selectedModel";
+
+function readStored(): string {
+    if (typeof window === "undefined") return DEFAULT_MODEL_ID;
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw && ALLOWED_MODEL_IDS.has(raw)) return raw;
+    return DEFAULT_MODEL_ID;
 }
 
 export function useSelectedModel(): [string, (id: string) => void] {
-    const { profile, setSelectedModel } = useUserProfile();
-    const model = pickInitial(profile?.llm);
+    const [model, setModelState] = useState<string>(DEFAULT_MODEL_ID);
 
-    const onChange = useCallback(
-        (id: string) => {
-            const next = id && id.trim() ? id : DEFAULT_MODEL_ID;
-            void setSelectedModel(next);
-        },
-        [setSelectedModel],
-    );
+    useEffect(() => {
+        setModelState(readStored());
+    }, []);
 
-    return [model, onChange];
+    const setModel = useCallback((id: string) => {
+        const next = ALLOWED_MODEL_IDS.has(id) ? id : DEFAULT_MODEL_ID;
+        setModelState(next);
+        if (typeof window !== "undefined") {
+            window.localStorage.setItem(STORAGE_KEY, next);
+        }
+    }, []);
+
+    return [model, setModel];
 }

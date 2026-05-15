@@ -103,54 +103,24 @@ export function ChatView({
      */
     const upsertTab = useCallback(
         (tab: AssistantSidePanelTab) => {
-            // React `key` invariant: every tab MUST have a non-empty,
-            // unique id. The various `openCitation` / `openEditor` /
-            // `openDocument` paths used to assign `tab.id` from
-            // different source fields (`citation.path`,
-            // `citation.document_id`, `ann.document_id`,
-            // `args.documentId`), which left two cracks:
-            //
-            //   1. KB citations with neither `path` nor `document_id`
-            //      ended up with `id: undefined` — multiple such tabs
-            //      collided into a single React-rendered "undefined"
-            //      key.
-            //   2. A KB tab whose path happened to equal a later
-            //      non-KB tab's documentId pushed two tabs sharing
-            //      the same `id` but with different `documentId`,
-            //      slipping past the dedup-by-documentId check.
-            //
-            // We normalise the id to documentId here (with a hashed
-            // fallback when documentId itself is missing) so the
-            // invariant "tab.id === tab.documentId, always non-empty
-            // and unique" holds end-to-end.
-            const documentIdSafe =
-                typeof tab.documentId === "string" && tab.documentId.length > 0
-                    ? tab.documentId
-                    : `tab-${Date.now()}-${Math.random()
-                          .toString(36)
-                          .slice(2, 8)}`;
-            const normalised: AssistantSidePanelTab = {
-                ...tab,
-                id: documentIdSafe,
-                documentId: documentIdSafe,
-            };
             setTabs((prev) => {
                 const idx = prev.findIndex(
-                    (t) => t.documentId === normalised.documentId,
+                    (t) => t.documentId === tab.documentId,
                 );
                 if (idx >= 0) {
                     const existing = prev[idx];
                     const copy = prev.slice();
                     copy[idx] = {
-                        ...normalised,
+                        ...tab,
+                        id: existing.id,
                         warning: existing.warning,
                         initialScrollTop: existing.initialScrollTop,
                     };
                     return copy;
                 }
-                return [...prev, normalised];
+                return [...prev, tab];
             });
-            setActiveTabId(normalised.id);
+            setActiveTabId(tab.id);
             showPanel();
         },
         [showPanel],
@@ -159,35 +129,9 @@ export function ChatView({
     /**
      * Open a tab showing a single citation quote. Called from
      * AssistantMessage when the user clicks a numbered citation pill.
-     *
-     * KB citations (auto-retrieval and tool-fetched RAG chunks) carry
-     * a `path` instead of an upload-flow document UUID. We open them
-     * in the same DocPanel side-tab as attached docs, but flag them
-     * with `kbPath` so the panel's fetchers go through `/sync/kb-doc`.
-     * The citation header still highlights the quoted passage —
-     * page-anchored when the model emitted a `page` (PDFs with
-     * `[Page N]` markers in the chunk text), text-search otherwise.
      */
     const openCitation = useCallback(
         (citation: MikeCitationAnnotation) => {
-            const isKb =
-                (citation.source === "kb" || citation.source === "tool") &&
-                !!citation.path;
-            if (isKb) {
-                upsertTab({
-                    kind: "citation",
-                    id: citation.path ?? citation.document_id,
-                    // For KB the documentId is just a stable React key;
-                    // network calls use kbPath instead.
-                    documentId: citation.document_id,
-                    filename: citation.filename,
-                    versionId: null,
-                    versionNumber: null,
-                    citation,
-                    kbPath: citation.path,
-                });
-                return;
-            }
             upsertTab({
                 kind: "citation",
                 id: citation.document_id,
@@ -402,9 +346,6 @@ export function ChatView({
     }, []);
 
     useEffect(() => {
-        // Recompute the spacer min-height when the message list grows.
-        // Previously this depended on `latestUserMessageRef.current`, which
-        // is a mutable ref — React saw it change every render and looped.
         if (latestUserMessageRef.current) {
             const headerHeight = window.innerWidth < 768 ? 56 : 0;
             const gap = window.innerWidth < 768 ? 16 : 24;
@@ -415,7 +356,7 @@ export function ChatView({
                 `calc(100dvh - ${headerHeight + gap + userMessageHeight + paddingBottom + marginBottom}px)`,
             );
         }
-    }, [messages.length]);
+    }, [messages.length, latestUserMessageRef.current]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const updateScrollButton = useCallback(() => {
         const c = messagesContainerRef.current;
