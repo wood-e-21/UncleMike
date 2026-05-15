@@ -144,18 +144,19 @@ export async function waitForBackend(timeoutMs = 30_000): Promise<boolean> {
   return false;
 }
 
-export function getBackendPort(): number {
+export function getBackendPort(): number | null {
   if (backendPort !== null) return backendPort;
   const rt = readRuntimeFile();
   if (rt?.port) {
     backendPort = rt.port;
     return rt.port;
   }
-  return 3001;
+  return null;
 }
 
-export function getBackendApiBase(): string {
-  return `http://127.0.0.1:${getBackendPort()}`;
+export function getBackendApiBase(): string | null {
+  const port = getBackendPort();
+  return port === null ? null : `http://127.0.0.1:${port}`;
 }
 
 export function getBackendExitInfo(): ExitInfo | null {

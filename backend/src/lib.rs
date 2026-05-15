@@ -193,6 +193,7 @@ async fn run_server_inner(port: u16) -> anyhow::Result<()> {
         // Alias used by the upstream-Mike frontend for standalone documents.
         .nest("/single-documents", routes::documents::router())
         .nest("/workflow",  routes::workflows::router())
+        .nest("/workflows", routes::workflows::router())
         .nest("/tabular-review", routes::tabular_reviews::router())
         .nest("/sync",     routes::sync::router())
         .layer(propagate_request_id)

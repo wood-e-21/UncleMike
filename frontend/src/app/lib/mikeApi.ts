@@ -45,22 +45,23 @@ export async function getApiBase(): Promise<string> {
     if (cachedApiBase) return cachedApiBase;
     if (typeof window !== "undefined") {
         const bridge = window.mike as
-            | { getApiBase?: () => Promise<string> }
+            | { getApiBase?: () => Promise<string | null> }
             | undefined;
         if (bridge?.getApiBase) {
             try {
                 const base = await bridge.getApiBase();
                 if (base) {
                     cachedApiBase = base;
-                    return cachedApiBase;
+                    return base;
                 }
+                // Backend not ready yet — return the fallback for this attempt
+                // but don't cache it; the next call retries the IPC.
             } catch {
-                // fall through to the env-configured base
+                // fall through
             }
         }
     }
-    cachedApiBase = FALLBACK_API_BASE;
-    return cachedApiBase;
+    return FALLBACK_API_BASE;
 }
 
 async function getAuthHeader(): Promise<Record<string, string>> {
@@ -381,7 +382,7 @@ export async function downloadDocumentsZip(
 export async function createChat(payload?: {
     project_id?: string;
 }): Promise<{ id: string }> {
-    return apiRequest<{ id: string }>("/chat/create", {
+    return apiRequest<{ id: string }>("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload ?? {}),

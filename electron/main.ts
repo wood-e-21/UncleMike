@@ -284,10 +284,14 @@ ipcMain.handle("mike:unlock", async (_e, password: unknown) => {
       // shows a "Configure API keys" panel when /internal/secrets/status
       // reports `populated: 0`.
       try {
+        const apiBase = getBackendApiBase();
+        if (!apiBase) {
+          throw new Error("backend api base not available despite backendReady");
+        }
         const result = await loadSecretsToBackend(
           currentWorkspace,
           backendUnlockSecret,
-          getBackendApiBase(),
+          apiBase,
           sessionJwt,
         );
         if (result.cause === "ok") {
